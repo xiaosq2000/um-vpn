@@ -10,13 +10,49 @@
 # The portal federates to ADFS/SAML, so openconnect cannot log in by itself.
 # get-dsid.py opens a Chrome window for UMPASS + Duo and lifts the DSID session
 # cookie out of it over the DevTools protocol -- no DevTools panel, no pasting.
+#
+# Optional environment overrides:
+#
+#   UM_VPN_SERVER    portal URL (default https://sslvpn.um.edu.mo)
+#   UM_VPN_DOMAIN    cookie domain (default: the host part of the URL)
+#   UM_VPN_BROWSER   Chromium-family browser to drive
+#   UM_VPN_SCRIPT    path to vpnc-script
+#
+# The browser and vpnc-script are probed from the usual paths when unset.
 
 set -euo pipefail
 
-SERVER="https://sslvpn.um.edu.mo"
-DOMAIN="sslvpn.um.edu.mo"
-VPNC_SCRIPT="/usr/share/vpnc-scripts/vpnc-script"
-BROWSER="google-chrome"
+SERVER="${UM_VPN_SERVER:-https://sslvpn.um.edu.mo}"
+
+# Default the cookie domain to the server's host, so pointing this at another
+# Juniper/Pulse portal only takes the one override.
+DOMAIN="${UM_VPN_DOMAIN:-}"
+if [[ -z "$DOMAIN" ]]; then
+  DOMAIN="${SERVER#*://}"
+  DOMAIN="${DOMAIN%%/*}"
+  DOMAIN="${DOMAIN%%:*}"
+fi
+
+# Chromium-family only: the login is driven over the Chrome DevTools Protocol,
+# which Firefox does not speak.
+BROWSER_CANDIDATES=(
+  google-chrome
+  google-chrome-stable
+  chromium
+  chromium-browser
+)
+
+# Distributions disagree about where openconnect's vpnc-script lands.
+VPNC_SCRIPT_CANDIDATES=(
+  /usr/share/vpnc-scripts/vpnc-script
+  /etc/vpnc/vpnc-script
+  /usr/share/vpnc/vpnc-script
+  /usr/local/etc/vpnc/vpnc-script
+  /opt/homebrew/etc/vpnc/vpnc-script
+)
+
+# Resolved lazily in cmd_on: status and --help need neither.
+VPNC_SCRIPT=""
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/um-vpn"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/um-vpn"
@@ -30,6 +66,42 @@ GET_DSID="$(dirname "$SELF")/../libexec/um-vpn/get-dsid.py"
 
 die() { printf 'um-vpn: %s\n' "$*" >&2; exit 1; }
 note() { printf '%s\n' "$*" >&2; }
+
+# --- host discovery -------------------------------------------------------
+
+find_browser() {
+  local candidate
+  if [[ -n "${UM_VPN_BROWSER:-}" ]]; then
+    command -v "$UM_VPN_BROWSER" >/dev/null ||
+      die "browser not found: $UM_VPN_BROWSER"
+    printf '%s' "$UM_VPN_BROWSER"
+    return 0
+  fi
+  for candidate in "${BROWSER_CANDIDATES[@]}"; do
+    if command -v "$candidate" >/dev/null; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  die "no Chromium-family browser found; set UM_VPN_BROWSER"
+}
+
+find_vpnc_script() {
+  local candidate
+  if [[ -n "${UM_VPN_SCRIPT:-}" ]]; then
+    [[ -x "$UM_VPN_SCRIPT" ]] ||
+      die "vpnc-script is not executable: $UM_VPN_SCRIPT"
+    printf '%s' "$UM_VPN_SCRIPT"
+    return 0
+  fi
+  for candidate in "${VPNC_SCRIPT_CANDIDATES[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  die "vpnc-script not found; install vpnc-scripts or set UM_VPN_SCRIPT"
+}
 
 # --- tunnel state ---------------------------------------------------------
 
@@ -59,9 +131,11 @@ require_sudo() {
 # --- cookie ---------------------------------------------------------------
 
 fresh_dsid() {
+  local browser
   [[ -r "$GET_DSID" ]] || die "helper not found: $GET_DSID"
+  browser="$(find_browser)"
   python3 "$GET_DSID" \
-    --browser "$BROWSER" \
+    --browser "$browser" \
     --profile "$CHROME_PROFILE" \
     --url "$SERVER" \
     --cookie DSID \
@@ -105,7 +179,7 @@ cmd_on() {
   fi
 
   command -v openconnect >/dev/null || die "openconnect is not installed"
-  [[ -x "$VPNC_SCRIPT" ]] || die "vpnc-script not found at $VPNC_SCRIPT"
+  VPNC_SCRIPT="$(find_vpnc_script)"
   install -d -m 700 "$STATE_DIR" "$DATA_DIR"
   require_sudo
 
@@ -183,8 +257,14 @@ cmd_status() {
   printf '  log: %s\n' "$LOG_FILE"
 }
 
+# Print the header comment block, however long it happens to be: a hardcoded
+# line range silently desynchronises from --help the first time it is edited.
 usage() {
-  sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'
+  awk '
+    NR == 1 { next }
+    !/^#/   { exit }
+            { sub(/^# ?/, ""); print }
+  ' "$SELF"
 }
 
 case "${1-toggle}" in
