@@ -2,7 +2,7 @@
 # UM SSL VPN toggle.
 #
 #   um-vpn            toggle: connect if down, disconnect if up
-#   um-vpn on         connect (reusing the cached session cookie when it still works)
+#   um-vpn on         connect (reusing the cached cookie when it still works)
 #   um-vpn off        disconnect
 #   um-vpn status     show tunnel state
 #   um-vpn renew      force a fresh browser login, then connect
@@ -35,42 +35,42 @@ note() { printf '%s\n' "$*" >&2; }
 
 # kill -0 reports EPERM for a root-owned process, so probe /proc instead.
 tunnel_pid() {
-	local pid
-	[[ -r "$PID_FILE" ]] || return 1
-	pid="$(<"$PID_FILE")"
-	[[ "$pid" =~ ^[0-9]+$ ]] || return 1
-	[[ -d "/proc/$pid" ]] || return 1
-	[[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == openconnect ]] || return 1
-	printf '%s' "$pid"
+  local pid
+  [[ -r "$PID_FILE" ]] || return 1
+  pid="$(<"$PID_FILE")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  [[ -d "/proc/$pid" ]] || return 1
+  [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == openconnect ]] || return 1
+  printf '%s' "$pid"
 }
 
 tunnel_addr() {
-	ip -o -4 addr show 2>/dev/null |
-		awk '$2 ~ /^(tun|vpn)/ { print $2 " " $4; exit }'
+  ip -o -4 addr show 2>/dev/null |
+    awk '$2 ~ /^(tun|vpn)/ { print $2 " " $4; exit }'
 }
 
 # --- privileges -----------------------------------------------------------
 
 # Take the sudo prompt up front so it never appears underneath the login window.
 require_sudo() {
-	sudo -v || die "sudo authentication failed"
+  sudo -v || die "sudo authentication failed"
 }
 
 # --- cookie ---------------------------------------------------------------
 
 fresh_dsid() {
-	[[ -r "$GET_DSID" ]] || die "helper not found: $GET_DSID"
-	python3 "$GET_DSID" \
-		--browser "$BROWSER" \
-		--profile "$CHROME_PROFILE" \
-		--url "$SERVER" \
-		--cookie DSID \
-		--domain "$DOMAIN"
+  [[ -r "$GET_DSID" ]] || die "helper not found: $GET_DSID"
+  python3 "$GET_DSID" \
+    --browser "$BROWSER" \
+    --profile "$CHROME_PROFILE" \
+    --url "$SERVER" \
+    --cookie DSID \
+    --domain "$DOMAIN"
 }
 
 store_dsid() {
-	install -d -m 700 "$STATE_DIR"
-	(umask 077; printf '%s\n' "$1" >"$COOKIE_FILE")
+  install -d -m 700 "$STATE_DIR"
+  (umask 077; printf '%s\n' "$1" >"$COOKIE_FILE")
 }
 
 # --- connect / disconnect -------------------------------------------------
@@ -79,113 +79,120 @@ store_dsid() {
 # --no-proxy pins the behaviour sudo's env_reset gives us today, so a local
 # http_proxy leaking through env_keep cannot silently reroute the tunnel.
 # --non-inter turns any unexpected prompt into a fast, visible failure.
+#
+# SC2024: the redirect is intentionally the calling shell's, not sudo's -- the
+# log lives in the user's own state dir and must stay user-owned.
+# shellcheck disable=SC2024
 connect_with() {
-	printf 'DSID=%s\n' "$1" | sudo openconnect \
-		--protocol=nc \
-		--cookie-on-stdin \
-		--no-proxy \
-		--non-inter \
-		--background \
-		--timestamp \
-		--pid-file "$PID_FILE" \
-		--script "$VPNC_SCRIPT" \
-		"$SERVER" >>"$LOG_FILE" 2>&1
+  printf 'DSID=%s\n' "$1" | sudo openconnect \
+    --protocol=nc \
+    --cookie-on-stdin \
+    --no-proxy \
+    --non-inter \
+    --background \
+    --timestamp \
+    --pid-file "$PID_FILE" \
+    --script "$VPNC_SCRIPT" \
+    "$SERVER" >>"$LOG_FILE" 2>&1
 }
 
 cmd_on() {
-	local pid dsid
-	if pid="$(tunnel_pid)"; then
-		note "Already connected (pid $pid)."
-		cmd_status
-		return 0
-	fi
+  local pid dsid
+  if pid="$(tunnel_pid)"; then
+    note "Already connected (pid $pid)."
+    cmd_status
+    return 0
+  fi
 
-	command -v openconnect >/dev/null || die "openconnect is not installed"
-	[[ -x "$VPNC_SCRIPT" ]] || die "vpnc-script not found at $VPNC_SCRIPT"
-	install -d -m 700 "$STATE_DIR" "$DATA_DIR"
-	require_sudo
+  command -v openconnect >/dev/null || die "openconnect is not installed"
+  [[ -x "$VPNC_SCRIPT" ]] || die "vpnc-script not found at $VPNC_SCRIPT"
+  install -d -m 700 "$STATE_DIR" "$DATA_DIR"
+  require_sudo
 
-	if [[ -s "$COOKIE_FILE" ]]; then
-		note "Trying the cached session cookie..."
-		if connect_with "$(<"$COOKIE_FILE")"; then
-			note "Connected."
-			cmd_status
-			return 0
-		fi
-		note "Cached cookie was rejected; a fresh login is needed."
-	fi
+  if [[ -s "$COOKIE_FILE" ]]; then
+    note "Trying the cached session cookie..."
+    if connect_with "$(<"$COOKIE_FILE")"; then
+      note "Connected."
+      cmd_status
+      return 0
+    fi
+    note "Cached cookie was rejected; a fresh login is needed."
+  fi
 
-	dsid="$(fresh_dsid)" || die "could not obtain a DSID cookie"
-	[[ -n "$dsid" ]] || die "browser login produced an empty DSID"
-	store_dsid "$dsid"
+  dsid="$(fresh_dsid)" || die "could not obtain a DSID cookie"
+  [[ -n "$dsid" ]] || die "browser login produced an empty DSID"
+  store_dsid "$dsid"
 
-	if connect_with "$dsid"; then
-		note "Connected."
-		cmd_status
-		return 0
-	fi
+  if connect_with "$dsid"; then
+    note "Connected."
+    cmd_status
+    return 0
+  fi
 
-	note "--- last lines of $LOG_FILE ---"
-	tail -n 15 "$LOG_FILE" >&2 || true
-	die "openconnect failed to start the tunnel"
+  note "--- last lines of $LOG_FILE ---"
+  tail -n 15 "$LOG_FILE" >&2 || true
+  die "openconnect failed to start the tunnel"
 }
 
 cmd_off() {
-	local pid
-	if ! pid="$(tunnel_pid)"; then
-		note "Not connected."
-		if [[ -e "$PID_FILE" ]]; then sudo rm -f "$PID_FILE"; fi
-		return 0
-	fi
-	require_sudo
-	# One sudo invocation so the whole teardown costs at most one prompt.
-	sudo sh -c '
-		pid=$1; pidfile=$2
-		kill -TERM "$pid" 2>/dev/null
-		i=0
-		while [ -d "/proc/$pid" ] && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i+1)); done
-		[ -d "/proc/$pid" ] && kill -KILL "$pid" 2>/dev/null
-		rm -f "$pidfile"
-		exit 0
-	' sh "$pid" "$PID_FILE"
-	note "Disconnected."
+  local pid
+  if ! pid="$(tunnel_pid)"; then
+    note "Not connected."
+    if [[ -e "$PID_FILE" ]]; then sudo rm -f "$PID_FILE"; fi
+    return 0
+  fi
+  require_sudo
+  # One sudo invocation so the whole teardown costs at most one prompt.
+  sudo sh -c '
+    pid=$1; pidfile=$2
+    kill -TERM "$pid" 2>/dev/null
+    i=0
+    while [ -d "/proc/$pid" ] && [ "$i" -lt 40 ]; do
+      sleep 0.25
+      i=$((i + 1))
+    done
+    [ -d "/proc/$pid" ] && kill -KILL "$pid" 2>/dev/null
+    rm -f "$pidfile"
+    exit 0
+  ' sh "$pid" "$PID_FILE"
+  note "Disconnected."
 }
 
 cmd_renew() {
-	if tunnel_pid >/dev/null; then cmd_off; fi
-	rm -f "$COOKIE_FILE"
-	note "Cached cookie cleared."
-	cmd_on
+  if tunnel_pid >/dev/null; then cmd_off; fi
+  rm -f "$COOKIE_FILE"
+  note "Cached cookie cleared."
+  cmd_on
 }
 
 cmd_status() {
-	local pid addr
-	if pid="$(tunnel_pid)"; then
-		addr="$(tunnel_addr)"
-		printf 'um-vpn: connected (pid %s)%s\n' "$pid" \
-			"${addr:+, ${addr%% *} ${addr##* }}"
-	else
-		printf 'um-vpn: disconnected\n'
-	fi
-	if [[ -s "$COOKIE_FILE" ]]; then
-		printf '  cached cookie: %s (%dm old)\n' "$COOKIE_FILE" \
-			"$(( ( $(date +%s) - $(stat -c %Y "$COOKIE_FILE") ) / 60 ))"
-	else
-		printf '  cached cookie: none\n'
-	fi
-	printf '  log: %s\n' "$LOG_FILE"
+  local pid addr
+  if pid="$(tunnel_pid)"; then
+    addr="$(tunnel_addr)"
+    printf 'um-vpn: connected (pid %s)%s\n' "$pid" \
+      "${addr:+, ${addr%% *} ${addr##* }}"
+  else
+    printf 'um-vpn: disconnected\n'
+  fi
+  if [[ -s "$COOKIE_FILE" ]]; then
+    printf '  cached cookie: %s (%dm old)\n' "$COOKIE_FILE" \
+      "$(( ( $(date +%s) - $(stat -c %Y "$COOKIE_FILE") ) / 60 ))"
+  else
+    printf '  cached cookie: none\n'
+  fi
+  printf '  log: %s\n' "$LOG_FILE"
 }
 
 usage() {
-	sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'
 }
 
 case "${1-toggle}" in
-	toggle) if tunnel_pid >/dev/null; then cmd_off; else cmd_on; fi ;;
-	on|up|connect) cmd_on ;;
-	off|down|disconnect) cmd_off ;;
-	status) cmd_status ;;
-	renew|relogin) cmd_renew ;;
-	-h|--help|help) usage ;;
-	*) die "unknown command: $1 (try --help)" ;;
+  toggle) if tunnel_pid >/dev/null; then cmd_off; else cmd_on; fi ;;
+  on|up|connect) cmd_on ;;
+  off|down|disconnect) cmd_off ;;
+  status) cmd_status ;;
+  renew|relogin) cmd_renew ;;
+  -h|--help|help) usage ;;
+  *) die "unknown command: $1 (try --help)" ;;
 esac

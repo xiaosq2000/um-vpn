@@ -114,7 +114,9 @@ class WebSocket:
         want = self._next_id
         self._frame(
             1,
-            json.dumps({"id": want, "method": method, "params": params or {}}).encode(),
+            json.dumps(
+                {"id": want, "method": method, "params": params or {}}
+            ).encode(),
         )
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -122,9 +124,8 @@ class WebSocket:
             if reply.get("id") != want:
                 continue  # an event, or a reply we no longer care about
             if "error" in reply:
-                raise RuntimeError(
-                    f"{method}: {reply['error'].get('message', reply['error'])}"
-                )
+                err = reply["error"]
+                raise RuntimeError(f"{method}: {err.get('message', err)}")
             return reply.get("result", {})
         raise TimeoutError(f"{method} timed out")
 
@@ -150,7 +151,9 @@ def read_devtools_endpoint(profile):
 
 def devtools_alive(port):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2):
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/json/version", timeout=2
+        ):
             return True
     except (urllib.error.URLError, OSError):
         return False
@@ -164,7 +167,8 @@ def launch_chrome(browser, profile, url):
     argv = [
         browser,
         f"--user-data-dir={profile}",
-        "--remote-debugging-port=0",  # Chrome writes the real port to DevToolsActivePort
+        # Chrome writes the real port to DevToolsActivePort.
+        "--remote-debugging-port=0",
         "--no-first-run",
         "--no-default-browser-check",
         "--no-service-autorun",
@@ -192,12 +196,19 @@ def find_cookie(ws, name, domain):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--browser", default="google-chrome")
-    ap.add_argument("--profile", required=True, help="dedicated Chrome user-data-dir")
+    ap.add_argument(
+        "--profile", required=True, help="dedicated Chrome user-data-dir"
+    )
     ap.add_argument("--url", required=True, help="portal URL to open")
     ap.add_argument("--cookie", default="DSID", help="cookie name to harvest")
-    ap.add_argument("--domain", required=True, help="domain the cookie must belong to")
     ap.add_argument(
-        "--timeout", type=float, default=300.0, help="seconds to wait for login"
+        "--domain", required=True, help="domain the cookie must belong to"
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="seconds to wait for login",
     )
     args = ap.parse_args()
 
@@ -208,7 +219,10 @@ def main():
     if endpoint and devtools_alive(endpoint[0]):
         log("Reusing the login window that is already open.")
     else:
-        log(f"Opening {args.browser} at {args.url} -- sign in with UMPASS + Duo.")
+        log(
+            f"Opening {args.browser} at {args.url} "
+            "-- sign in with UMPASS + Duo."
+        )
         log("The window closes by itself once the session cookie appears.")
         proc = launch_chrome(args.browser, args.profile, args.url)
         deadline = time.monotonic() + 30
@@ -240,7 +254,8 @@ def main():
             time.sleep(1.0)
         else:
             log(
-                f"Gave up after {args.timeout:.0f}s without seeing a {args.cookie} cookie."
+                f"Gave up after {args.timeout:.0f}s without seeing "
+                f"a {args.cookie} cookie."
             )
     except ConnectionError:
         log("The login window was closed before authentication completed.")

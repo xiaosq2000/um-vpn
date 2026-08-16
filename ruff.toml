@@ -1,0 +1,9 @@
+# PEP 8: 4-space indent, 79-column limit.
+line-length = 79
+indent-width = 4
+target-version = "py310"
+
+[lint]
+# E,F are ruff's defaults; I keeps import order stable, B catches the easy
+# runtime traps, UP keeps the syntax modern.
+select = ["E", "F", "I", "B", "UP"]

@@ -1,0 +1,29 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Google Shell Style Guide.
+[bin/um-vpn]
+indent_style = space
+indent_size = 2
+max_line_length = 80
+
+# PEP 8.
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 79
+
+[*.{yaml,yml}]
+indent_style = space
+indent_size = 2
+
+# No indent_size: ordered-list continuations align to the content (3 spaces
+# after "1. "), which is correct Markdown but not a multiple of 2.
+[*.md]
+indent_style = space
+trim_trailing_whitespace = false
