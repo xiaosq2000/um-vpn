@@ -1,0 +1,48 @@
+# Install once with: pre-commit install
+# Run over everything with: pre-commit run --all-files
+#
+# This is the whole verification harness. There is no build and no test suite,
+# so these hooks are what "checked" means in this repo.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-yaml
+      # bin/um-vpn is invoked through a symlink on PATH; a lost +x breaks it.
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+
+  # Enforces .editorconfig: 2-space/80-col for bin/um-vpn, PEP 8 for *.py.
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3.11.1
+    hooks:
+      - id: editorconfig-checker
+        alias: ec
+
+  # Ships its own shellcheck binary, so no Docker and no system install.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # The DSID is a live authenticated session. It lives outside the repo by
+      # design; this is the backstop against a copy being pasted into a file.
+      - id: no-dsid
+        name: no DSID session cookie in the tree
+        entry: DSID=[0-9a-fA-F]{16,}
+        language: pygrep
+        types: [text]

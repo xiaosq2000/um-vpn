@@ -48,6 +48,22 @@ is enough — but the two files must move together. No Python packages are neede
 `libexec/um-vpn/get-dsid.py` is standard library only (Ubuntu 26.04 is PEP-668
 managed and this was not worth a virtualenv).
 
+### Development
+
+There is no build and no test suite, so [pre-commit](https://pre-commit.com) is
+the whole check:
+
+```bash
+pre-commit install          # once per clone, installs the git hook
+pre-commit run --all-files  # on demand
+```
+
+It runs shellcheck, `ruff check` and `ruff format`, the `.editorconfig` rules,
+and a guard that refuses to commit anything containing a DSID value.
+`bin/um-vpn` follows the Google Shell Style Guide (2-space indent, 80 columns);
+`get-dsid.py` follows PEP 8. `.editorconfig` and `ruff.toml` are the source of
+truth for both.
+
 ## Usage
 
 | Command         | Effect                                                            |
