@@ -42,7 +42,8 @@ The DSID **is** a live authenticated session — treat it as a password.
 - `set -euo pipefail`; `die`/`note` for every user-facing message, both to stderr; `# --- section ---` banners.
 - Comment *why* a non-obvious choice was made, not what a line does. Both files do this consistently; keep it.
 - Configuration constants live in the block at the top of `bin/um-vpn` (`SERVER`, `DOMAIN`, `VPNC_SCRIPT`, `BROWSER`) — add new ones there rather than inlining.
-- Commits follow Conventional Commits (`feat:`, `fix:`). No remote is configured yet.
+- Commits follow Conventional Commits (`feat:`, `fix:`).
+- `origin` is a **private** GitHub repo that is intended to go public once it is packaged. Treat everything committed as eventually publishable: no machine-specific paths, no personal identifiers, nothing that would need history rewriting later.
 
 ## Dependencies
 
