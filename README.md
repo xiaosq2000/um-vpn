@@ -48,6 +48,31 @@ is enough — but the two files must move together. No Python packages are neede
 `libexec/um-vpn/get-dsid.py` is standard library only (Ubuntu 26.04 is PEP-668
 managed and this was not worth a virtualenv).
 
+### Configuration
+
+The defaults target UM on Ubuntu, so nothing needs setting. Each is
+overridable from the environment:
+
+| Variable         | Default                         | Purpose                          |
+| ---------------- | ------------------------------- | -------------------------------- |
+| `UM_VPN_SERVER`  | `https://sslvpn.um.edu.mo`      | Portal URL                       |
+| `UM_VPN_DOMAIN`  | host part of `UM_VPN_SERVER`    | Domain the cookie must belong to |
+| `UM_VPN_BROWSER` | first Chromium-family on `PATH` | Browser to drive for the login   |
+| `UM_VPN_SCRIPT`  | first path found (below)        | `vpnc-script` location           |
+
+Because the cookie domain defaults to the server's host, pointing this at a
+different Juniper/Pulse portal takes only `UM_VPN_SERVER`.
+
+`vpnc-script` is looked for at `/usr/share/vpnc-scripts/vpnc-script`,
+`/etc/vpnc/vpnc-script`, `/usr/share/vpnc/vpnc-script`,
+`/usr/local/etc/vpnc/vpnc-script` and `/opt/homebrew/etc/vpnc/vpnc-script`,
+in that order. On Debian and Ubuntu it ships in the `vpnc-scripts` package.
+
+The browser must be Chromium-family — `google-chrome`,
+`google-chrome-stable`, `chromium` or `chromium-browser`. Firefox cannot
+stand in: the login is driven over the Chrome DevTools Protocol, which it
+does not implement.
+
 ### Development
 
 There is no build and no test suite, so [pre-commit](https://pre-commit.com) is
@@ -192,3 +217,7 @@ lifetime, there is no window at all: the cached cookie is tried first.
 - **Split tunnel.** Route only UM subnets through the VPN via `vpn-slice`,
   instead of sending everything. Needs the UM subnet list, which can be read off
   the tunnel's routes on a first full-tunnel connect.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

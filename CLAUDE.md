@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A toggle for the University of Macau SSL VPN. `bin/um-vpn` (bash) drives `openconnect --protocol=nc`; `libexec/um-vpn/get-dsid.py` (python3) opens Chrome on the portal, waits for UMPASS + Duo, and lifts the HttpOnly `DSID` session cookie out of the live browser over the DevTools protocol. `um-sslvpn-openconnect.md` is the README in substance.
+A toggle for the University of Macau SSL VPN. `bin/um-vpn` (bash) drives `openconnect --protocol=nc`; `libexec/um-vpn/get-dsid.py` (python3) opens Chrome on the portal, waits for UMPASS + Duo, and lifts the HttpOnly `DSID` session cookie out of the live browser over the DevTools protocol.
 
 `~/.local/bin/um-vpn` is a symlink into this working tree, so edits to `bin/um-vpn` change the installed command immediately.
 
@@ -18,7 +18,7 @@ There is no build and no test suite. `pre-commit run --all-files` is the entire 
 
 Breaking any of these fails in a way the diff does not show.
 
-- **`--help` is the header comment.** `usage()` prints `sed -n '2,12p' "$SELF"`. Inserting or deleting lines anywhere in `bin/um-vpn` lines 2–12 silently corrupts the help output; adding a subcommand means editing that block too.
+- **`--help` is the header comment.** `usage()` prints every `#` line from line 2 until the first non-comment line. So that block is user-facing text, not scratch notes, and a new subcommand or environment variable has to be documented there — but its length is free to change.
 - **`bin/` → `libexec/` is a relative lookup** via `readlink -f "$0"` + `../libexec/um-vpn/get-dsid.py`. A symlink to `bin/um-vpn` is fine; moving one file without the other is not.
 - **Helper contract:** `get-dsid.py` prints the cookie value on **stdout**, everything human-facing on **stderr**, and exits 1 on failure / 130 on Ctrl-C. `fresh_dsid()` captures stdout, so any stray `print()` to stdout becomes part of the cookie.
 - **`tunnel_pid()` probes `/proc`, not `kill -0`** — openconnect runs as root, so `kill -0` returns EPERM. Do not "simplify" it.
@@ -41,7 +41,7 @@ The DSID **is** a live authenticated session — treat it as a password.
 
 - `set -euo pipefail`; `die`/`note` for every user-facing message, both to stderr; `# --- section ---` banners.
 - Comment *why* a non-obvious choice was made, not what a line does. Both files do this consistently; keep it.
-- Configuration constants live in the block at the top of `bin/um-vpn` (`SERVER`, `DOMAIN`, `VPNC_SCRIPT`, `BROWSER`) — add new ones there rather than inlining.
+- Configuration is `UM_VPN_*` environment variables with defaults, resolved at the top of `bin/um-vpn`; host-dependent paths are probed by `find_browser`/`find_vpnc_script` rather than hardcoded. Keep new settings to that shape, and resolve them lazily so `status` and `--help` stay usable on a machine missing the dependencies.
 - Commits follow Conventional Commits (`feat:`, `fix:`).
 - `origin` is a **private** GitHub repo that is intended to go public once it is packaged. Treat everything committed as eventually publishable: no machine-specific paths, no personal identifiers, nothing that would need history rewriting later.
 
@@ -55,4 +55,4 @@ This is headed toward being shareable with other UM users and needs packaging (R
 
 ## Docs
 
-`um-sslvpn-openconnect.md` is the user-facing doc and carries a dated "Why not the other methods" decision log. Update it in the same pass as behaviour changes, and keep its style: tables, and an explicit record of *why* each alternative was rejected.
+`README.md` carries a dated "Why not the other methods" decision log. Update it in the same pass as behaviour changes, and keep its style: tables, and an explicit record of *why* each alternative was rejected.
