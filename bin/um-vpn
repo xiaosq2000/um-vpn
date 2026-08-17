@@ -6,6 +6,7 @@
 #   um-vpn off        disconnect
 #   um-vpn status     show tunnel state
 #   um-vpn renew      force a fresh browser login, then connect
+#   um-vpn uninstall  remove the command, the cached cookie and the profile
 #
 # The portal federates to ADFS/SAML, so openconnect cannot log in by itself.
 # get-dsid.py opens a Chrome window for UMPASS + Duo and lifts the DSID session
@@ -257,6 +258,111 @@ cmd_status() {
   printf '  log: %s\n' "$LOG_FILE"
 }
 
+# --- uninstall ------------------------------------------------------------
+
+# Abbreviate $HOME so the confirmation listing stays readable at a glance.
+tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
+
+# Only symlinks resolving back to this script are ours to delete: a real file
+# named um-vpn on PATH belongs to something else, and the clone is never
+# touched -- reinstalling is the same one `ln -s` as before.
+installed_links() {
+  local dir link
+  local -A seen=()
+  local -a dirs=()
+  IFS=: read -r -a dirs <<<"$PATH"
+  # The README puts the symlink here, so look even if PATH has moved on.
+  dirs+=("$HOME/.local/bin")
+  for dir in "${dirs[@]}"; do
+    [[ -n "$dir" ]] || continue
+    link="$dir/um-vpn"
+    [[ -L "$link" && -z "${seen["$link"]:-}" ]] || continue
+    seen["$link"]=1
+    if [[ "$(readlink -f "$link")" == "$SELF" ]]; then
+      printf '%s\n' "$link"
+    fi
+  done
+}
+
+cmd_uninstall() {
+  local link reply size clone width i
+  local -a links=() paths=() descs=()
+
+  mapfile -t links < <(installed_links)
+  clone="$(dirname "$(dirname "$SELF")")"
+
+  for link in "${links[@]}"; do
+    paths+=("$(tilde "$link")")
+    descs+=("symlink")
+  done
+  if [[ -d "$STATE_DIR" ]]; then
+    paths+=("$(tilde "$STATE_DIR")")
+    descs+=("cached cookie, log")
+  fi
+  if [[ -d "$DATA_DIR" ]]; then
+    size="$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)"
+    paths+=("$(tilde "$DATA_DIR")")
+    descs+=("Chrome profile${size:+, $size}")
+  fi
+
+  if (( ${#paths[@]} == 0 )); then
+    note "Nothing to remove; um-vpn is not installed for this user."
+    return 0
+  fi
+
+  [[ -t 0 ]] || die "uninstall needs a terminal to confirm"
+
+  # Pad to the longest path so the listing reads as a column, not a paragraph.
+  width=0
+  for i in "${!paths[@]}"; do
+    if (( ${#paths[i]} > width )); then width="${#paths[i]}"; fi
+  done
+
+  note "This will permanently remove:"
+  note ""
+  for i in "${!paths[@]}"; do
+    note "$(printf '  %-*s  (%s)' "$width" "${paths[i]}" "${descs[i]}")"
+  done
+  note ""
+  if tunnel_pid >/dev/null; then
+    note "The tunnel is up and will be disconnected first."
+  fi
+  note "The clone at $(tilde "$clone") is left alone."
+  note ""
+  read -r -p "Type 'uninstall' to confirm: " reply || reply=""
+  [[ "$reply" == "uninstall" ]] || die "aborted"
+
+  # Tear the tunnel down before the pidfile goes: otherwise openconnect keeps
+  # running as root with no supported way left to stop it.
+  if tunnel_pid >/dev/null || [[ -e "$PID_FILE" ]]; then
+    cmd_off
+  fi
+
+  # Both are built as <xdg-dir>/um-vpn. This is the only irreversible thing
+  # um-vpn does, so check that rather than trust it.
+  [[ "$STATE_DIR" == */um-vpn && "$DATA_DIR" == */um-vpn ]] ||
+    die "refusing to remove unexpected paths"
+
+  for link in "${links[@]}"; do
+    rm -f "$link" || note "could not remove $link -- try: sudo rm $link"
+  done
+  rm -rf "$STATE_DIR" "$DATA_DIR"
+  note "Removed."
+  note ""
+
+  # Deleting the cookie only revokes this machine's copy of the session.
+  note "Your portal session stays valid until the gateway expires it."
+  note "To end it now, open $SERVER in a browser and log out."
+  note "The ADFS and Duo trust lived in the deleted profile and is gone."
+  note ""
+  note "Left in place:"
+  note "  $(tilde "$clone")  (the scripts themselves; delete it yourself)"
+  note "  openconnect and vpnc-scripts -- other VPNs may need them:"
+  note "    sudo apt remove openconnect vpnc-scripts"
+}
+
+# --- entry point ----------------------------------------------------------
+
 # Print the header comment block, however long it happens to be: a hardcoded
 # line range silently desynchronises from --help the first time it is edited.
 usage() {
@@ -273,6 +379,7 @@ case "${1-toggle}" in
   off|down|disconnect) cmd_off ;;
   status) cmd_status ;;
   renew|relogin) cmd_renew ;;
+  uninstall) cmd_uninstall ;;
   -h|--help|help) usage ;;
   *) die "unknown command: $1 (try --help)" ;;
 esac

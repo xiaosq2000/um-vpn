@@ -48,6 +48,36 @@ is enough — but the two files must move together. No Python packages are neede
 `libexec/um-vpn/get-dsid.py` is standard library only (Ubuntu 26.04 is PEP-668
 managed and this was not worth a virtualenv).
 
+### Uninstall
+
+```bash
+um-vpn uninstall
+```
+
+It lists what it is about to delete, waits for you to type `uninstall`, then
+disconnects the tunnel if it is up, removes every `um-vpn` symlink on `PATH`
+that resolves to this clone, and deletes `~/.local/state/um-vpn` and
+`~/.local/share/um-vpn`.
+
+Order matters, which is the reason this is a subcommand rather than a line in
+this file: deleting the state directory while connected takes the PID file with
+it, leaving `openconnect` running as root with your routes and no supported way
+to stop it.
+
+Deliberately left behind:
+
+| Left in place                 | Why                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| The clone                     | It _is_ the program. Delete it yourself; reinstalling is the same one `ln -s`    |
+| `openconnect`, `vpnc-scripts` | System packages another VPN may need — `sudo apt remove openconnect vpnc-scripts` |
+| Your portal session           | Deleting the cookie revokes only this machine's copy — see below                 |
+
+The gateway keeps your session alive until it expires on its own, so uninstall
+inverts the usual advice: this is the one time you _should_ open the portal and
+click Logout, to kill it server-side. The ADFS "keep me signed in" cookie and
+Duo's "remember this device" lived in the deleted Chrome profile, so those are
+gone with it.
+
 ### Configuration
 
 The defaults target UM on Ubuntu, so nothing needs setting. Each is
@@ -91,13 +121,14 @@ truth for both.
 
 ## Usage
 
-| Command         | Effect                                                            |
-| --------------- | ----------------------------------------------------------------- |
-| `um-vpn`        | Toggle — connect if down, disconnect if up                        |
-| `um-vpn on`     | Connect, reusing the cached session cookie when it still works    |
-| `um-vpn off`    | Disconnect                                                        |
-| `um-vpn status` | Tunnel state, interface address, cookie age, log path             |
-| `um-vpn renew`  | Discard the cached cookie, force a fresh browser login, reconnect |
+| Command              | Effect                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| `um-vpn`             | Toggle — connect if down, disconnect if up                        |
+| `um-vpn on`          | Connect, reusing the cached session cookie when it still works    |
+| `um-vpn off`         | Disconnect                                                        |
+| `um-vpn status`      | Tunnel state, interface address, cookie age, log path             |
+| `um-vpn renew`       | Discard the cached cookie, force a fresh browser login, reconnect |
+| `um-vpn uninstall`   | Disconnect, then remove the command, the cookie and the profile   |
 
 A connect asks for your sudo password up front (before any window appears), then
 either reuses the cached cookie or opens a login window.
@@ -154,9 +185,10 @@ lifetime, there is no window at all: the cached cookie is tried first.
   gateway expires it; `um-vpn renew` invalidates your local copy.
 - The dedicated Chrome profile holds an ADFS SSO cookie once you tick "keep me
   signed in". That is the price of silent reconnects. Delete the profile
-  directory to revoke it.
+  directory — or run `um-vpn uninstall` — to revoke it.
 - Do **not** click Logout on the portal — that invalidates the cookie
-  server-side.
+  server-side. The exception is uninstalling, where killing the session is the
+  point.
 - The tunnel runs with `--no-proxy`. This machine has
   `https_proxy=127.0.0.1:1080` in the environment; `sudo`'s `env_reset` already
   strips it, and `--no-proxy` pins that behaviour so an `env_keep` change cannot

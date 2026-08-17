@@ -23,6 +23,10 @@ Breaking any of these fails in a way the diff does not show.
 - **Helper contract:** `get-dsid.py` prints the cookie value on **stdout**, everything human-facing on **stderr**, and exits 1 on failure / 130 on Ctrl-C. `fresh_dsid()` captures stdout, so any stray `print()` to stdout becomes part of the cookie.
 - **`tunnel_pid()` probes `/proc`, not `kill -0`** — openconnect runs as root, so `kill -0` returns EPERM. Do not "simplify" it.
 - **Teardown is a single `sudo sh -c`** (TERM → 10s poll → KILL → rm pidfile) so it costs at most one password prompt, and `require_sudo` runs `sudo -v` *before* Chrome launches so the prompt never hides behind the login window.
+- **`uninstall` must disconnect before it deletes.** Removing the state dir
+  while the tunnel is up takes the PID file with it, stranding a root-owned
+  `openconnect` with no supported way to stop it. It only unlinks symlinks
+  resolving to `$SELF`, never the clone or a real file on `PATH`.
 - **A rejected cached cookie is the normal expiry path**, not an error: `cmd_on` tries the cached DSID first and only falls back to a browser login when openconnect refuses it.
 - **Chrome specifics in `get-dsid.py`:** `--remote-debugging-port=0` with the real port read from `DevToolsActivePort`; an already-open window on the profile is reused (Chrome would otherwise hand the launch off and exit); shutdown goes through `Browser.close` so the ADFS "keep me signed in" cookie is flushed to the profile.
 
