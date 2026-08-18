@@ -1,0 +1,4 @@
+# Markdown prose is wrapped rather than left as one line per paragraph, so a
+# diff points at the sentence that changed. 80 is prettier's default and
+# matches bin/um-vpn.
+proseWrap: always

@@ -37,6 +37,14 @@ repos:
       - id: ruff-check
       - id: ruff-format
 
+  # Markdown only: the docs are the shipped product, and README.md is already
+  # hand-wrapped at 80 like the code, so this enforces that instead of a style.
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.9.6
+    hooks:
+      - id: prettier
+        types: [markdown]
+
   - repo: local
     hooks:
       # The DSID is a live authenticated session. It lives outside the repo by

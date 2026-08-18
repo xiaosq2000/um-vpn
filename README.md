@@ -111,11 +111,12 @@ pre-commit install          # once per clone, installs the git hook
 pre-commit run --all-files  # on demand
 ```
 
-It runs shellcheck, `ruff check` and `ruff format`, the `.editorconfig` rules,
-and a guard that refuses to commit anything containing a DSID value.
-`bin/um-vpn` follows the Google Shell Style Guide (2-space indent, 80 columns);
-`get-dsid.py` follows PEP 8. `.editorconfig` and `ruff.toml` are the source of
-truth for both.
+It runs shellcheck, `ruff check` and `ruff format`, prettier over the Markdown,
+the `.editorconfig` rules, and a guard that refuses to commit anything
+containing a DSID value. `bin/um-vpn` follows the Google Shell Style Guide
+(2-space indent, 80 columns); `get-dsid.py` follows PEP 8; the docs are wrapped
+at 80 too. `.editorconfig`, `ruff.toml` and `.prettierrc.yaml` are the source of
+truth.
 
 ## Usage
 
