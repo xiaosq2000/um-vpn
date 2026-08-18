@@ -20,12 +20,13 @@
 #
 # Optional environment overrides:
 #
-#   UM_VPN_SERVER        portal URL (default https://sslvpn.um.edu.mo)
-#   UM_VPN_DOMAIN        cookie domain (default: the host part of the URL)
-#   UM_VPN_LOGIN_DOMAIN  domain allowed to receive the saved credentials
-#   UM_VPN_BROWSER       Chromium-family browser to drive
-#   UM_VPN_SCRIPT        path to vpnc-script
-#   UM_VPN_AUTOFILL      'off' to always type the sign-in form yourself
+#   UM_VPN_PORTAL_URL     portal URL (default https://sslvpn.um.edu.mo)
+#   UM_VPN_COOKIE_DOMAIN  domain the cookie must belong to (default: the
+#                         host part of the portal URL)
+#   UM_VPN_LOGIN_DOMAIN   domain allowed to receive the saved credentials
+#   UM_VPN_BROWSER        Chromium-family browser to drive
+#   UM_VPN_VPNC_SCRIPT    path to vpnc-script
+#   UM_VPN_AUTOFILL       'off' to always type the sign-in form yourself
 #
 # The browser and vpnc-script are probed from the usual paths when unset.
 # UM_VPN_LOGIN_DOMAIN defaults to the cookie domain without its leftmost
@@ -33,11 +34,11 @@
 
 set -euo pipefail
 
-SERVER="${UM_VPN_SERVER:-https://sslvpn.um.edu.mo}"
+SERVER="${UM_VPN_PORTAL_URL:-https://sslvpn.um.edu.mo}"
 
 # Default the cookie domain to the server's host, so pointing this at another
 # Juniper/Pulse portal only takes the one override.
-DOMAIN="${UM_VPN_DOMAIN:-}"
+DOMAIN="${UM_VPN_COOKIE_DOMAIN:-}"
 if [[ -z "$DOMAIN" ]]; then
   DOMAIN="${SERVER#*://}"
   DOMAIN="${DOMAIN%%/*}"
@@ -108,10 +109,10 @@ find_browser() {
 
 find_vpnc_script() {
   local candidate
-  if [[ -n "${UM_VPN_SCRIPT:-}" ]]; then
-    [[ -x "$UM_VPN_SCRIPT" ]] ||
-      die "vpnc-script is not executable: $UM_VPN_SCRIPT"
-    printf '%s' "$UM_VPN_SCRIPT"
+  if [[ -n "${UM_VPN_VPNC_SCRIPT:-}" ]]; then
+    [[ -x "$UM_VPN_VPNC_SCRIPT" ]] ||
+      die "vpnc-script is not executable: $UM_VPN_VPNC_SCRIPT"
+    printf '%s' "$UM_VPN_VPNC_SCRIPT"
     return 0
   fi
   for candidate in "${VPNC_SCRIPT_CANDIDATES[@]}"; do
@@ -120,7 +121,7 @@ find_vpnc_script() {
       return 0
     fi
   done
-  die "vpnc-script not found; install vpnc-scripts or set UM_VPN_SCRIPT"
+  die "vpnc-script not found; install vpnc-scripts or set UM_VPN_VPNC_SCRIPT"
 }
 
 # --- tunnel state ---------------------------------------------------------

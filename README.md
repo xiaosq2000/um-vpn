@@ -83,17 +83,17 @@ gone with it.
 The defaults target UM on Ubuntu, so nothing needs setting. Each is overridable
 from the environment:
 
-| Variable              | Default                                    | Purpose                                                                                                                                                 |
-| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UM_VPN_SERVER`       | `https://sslvpn.um.edu.mo`                 | Portal URL                                                                                                                                              |
-| `UM_VPN_DOMAIN`       | host part of `UM_VPN_SERVER`               | Domain the cookie must belong to                                                                                                                        |
-| `UM_VPN_BROWSER`      | first Chromium-family on `PATH`            | Browser to drive for the login                                                                                                                          |
-| `UM_VPN_SCRIPT`       | first path found (below)                   | `vpnc-script` location                                                                                                                                  |
-| `UM_VPN_LOGIN_DOMAIN` | `UM_VPN_DOMAIN` without its leftmost label | Domain the saved credentials may be typed into. Two labels minimum — a single-label value is refused rather than opening every `https` page under a TLD |
-| `UM_VPN_AUTOFILL`     | `on`                                       | `off` keeps the credentials but leaves the form to you                                                                                                  |
+| Variable               | Default                                           | Purpose                                                                                                                                                 |
+| ---------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UM_VPN_PORTAL_URL`    | `https://sslvpn.um.edu.mo`                        | Portal URL                                                                                                                                              |
+| `UM_VPN_COOKIE_DOMAIN` | host part of `UM_VPN_PORTAL_URL`                  | Domain the cookie must belong to                                                                                                                        |
+| `UM_VPN_BROWSER`       | first Chromium-family on `PATH`                   | Browser to drive for the login                                                                                                                          |
+| `UM_VPN_VPNC_SCRIPT`   | first path found (below)                          | `vpnc-script` location                                                                                                                                  |
+| `UM_VPN_LOGIN_DOMAIN`  | `UM_VPN_COOKIE_DOMAIN` without its leftmost label | Domain the saved credentials may be typed into. Two labels minimum — a single-label value is refused rather than opening every `https` page under a TLD |
+| `UM_VPN_AUTOFILL`      | `on`                                              | `off` keeps the credentials but leaves the form to you                                                                                                  |
 
-Because the cookie domain defaults to the server's host, pointing this at a
-different Juniper/Pulse portal takes only `UM_VPN_SERVER`.
+Because the cookie domain defaults to the portal URL’s host, pointing this at a
+different Juniper/Pulse portal takes only `UM_VPN_PORTAL_URL`.
 
 `vpnc-script` is looked for at `/usr/share/vpnc-scripts/vpnc-script`,
 `/etc/vpnc/vpnc-script`, `/usr/share/vpnc/vpnc-script`,
