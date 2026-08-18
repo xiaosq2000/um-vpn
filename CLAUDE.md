@@ -10,8 +10,10 @@ A toggle for the University of Macau SSL VPN. `bin/um-vpn` (bash) drives
 Chrome on the portal, waits for UMPASS + Duo, and lifts the HttpOnly `DSID`
 session cookie out of the live browser over the DevTools protocol.
 
-`~/.local/bin/um-vpn` is a symlink into this working tree, so edits to
-`bin/um-vpn` change the installed command immediately.
+`make install` copies both files into `~/.local`; `make link` symlinks
+`~/.local/bin/um-vpn` back into this working tree instead, so edits to
+`bin/um-vpn` change the installed command immediately. Assume the developer
+machine is linked, not copied.
 
 ## Verifying changes
 
@@ -32,8 +34,17 @@ Breaking any of these fails in a way the diff does not show.
   scratch notes, and a new subcommand or environment variable has to be
   documented there — but its length is free to change.
 - **`bin/` → `libexec/` is a relative lookup** via `readlink -f "$0"` +
-  `../libexec/um-vpn/browser-login.py`. A symlink to `bin/um-vpn` is fine;
-  moving one file without the other is not.
+  `../libexec/um-vpn/browser-login.py`. A symlink to `bin/um-vpn` is fine, and
+  so is any `PREFIX`, because the pair moves together; moving one file without
+  the other is not.
+- **The manifest is the contract between `Makefile` and `cmd_uninstall`.**
+  `make install`/`make link` write every path they created to
+  `$DATA_DIR/manifest`, and that file is the only reason uninstall may delete a
+  real file rather than just a symlink resolving to `$SELF`. Both sides
+  independently refuse a path that is not `*/um-vpn` or under one — it feeds an
+  `rm -rf` and lives on disk where a stray edit can reach it. A staged build
+  (`DESTDIR` set) writes no manifest on purpose: the package manager owns
+  removal there.
 - **Helper contract:** `browser-login.py` prints the cookie value on **stdout**,
   everything human-facing on **stderr**, and exits 1 on failure / 130 on Ctrl-C.
   `browser_login()` captures stdout, so any stray `print()` to stdout becomes

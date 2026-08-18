@@ -81,6 +81,10 @@ COOKIE_FILE="$STATE_DIR/cookie"
 PID_FILE="$STATE_DIR/tunnel.pid"
 LOG_FILE="$STATE_DIR/tunnel.log"
 BROWSER_PROFILE="$DATA_DIR/chrome"
+# Written by `make install` / `make link`: the paths an install created,
+# and the only ones uninstall may remove. Absent for a hand-made symlink,
+# which installed_links() still finds on PATH.
+MANIFEST_FILE="$DATA_DIR/manifest"
 
 SELF="$(readlink -f "$0")"
 LOGIN_HELPER="$(dirname "$SELF")/../libexec/um-vpn/browser-login.py"
@@ -365,14 +369,46 @@ cmd_status() {
 # Abbreviate $HOME so the confirmation listing stays readable at a glance.
 abbrev_home() { printf '%s' "${1/#"$HOME"/\~}"; }
 
-# Only symlinks resolving back to this script are ours to delete: a real file
-# named um-vpn on PATH belongs to something else, and the clone is never
-# touched -- reinstalling is the same one `ln -s` as before.
+in_list() {
+  local needle="$1" item
+  shift
+  for item in "$@"; do
+    if [[ "$item" == "$needle" ]]; then return 0; fi
+  done
+  return 1
+}
+
+# `make install` and `make link` record everything they created in the
+# manifest, so uninstall removes exactly that instead of guessing whether a
+# real file named um-vpn on PATH is ours. Filled into a global rather than
+# printed: the guard below has to be able to die, and inside a process
+# substitution that would only kill the subshell and return a short list.
+INSTALLED_PATHS=()
+read_manifest() {
+  local path
+  INSTALLED_PATHS=()
+  [[ -r "$MANIFEST_FILE" ]] || return 0
+  while IFS= read -r path || [[ -n "$path" ]]; do
+    [[ -n "$path" && "$path" != '#'* ]] || continue
+    # This file is on disk and feeds an `rm -rf`, so a stray edit must not be
+    # able to aim it at something that was never ours.
+    [[ "$path" == */um-vpn || "$path" == */um-vpn/* ]] ||
+      die "manifest lists an unexpected path: $path"
+    if [[ -e "$path" || -L "$path" ]]; then
+      INSTALLED_PATHS+=("$path")
+    fi
+  done <"$MANIFEST_FILE"
+}
+
+# Symlinks from before the Makefile existed, when the README said to run one
+# `ln -s` by hand. Only symlinks resolving back to this script are ours: a
+# real file named um-vpn on PATH belongs to something else, and with no
+# manifest there is nothing else to tell the two apart.
 installed_links() {
   local dir link
   local -a dirs=()
   IFS=: read -r -a dirs <<<"$PATH"
-  # The README puts the symlink here, so look even if PATH has moved on --
+  # That README put the symlink here, so look even if PATH has moved on --
   # awk then drops the duplicate when PATH already lists it.
   dirs+=("$HOME/.local/bin")
   for dir in "${dirs[@]}"; do
@@ -385,16 +421,31 @@ installed_links() {
 }
 
 cmd_uninstall() {
-  local link entry path desc line reply size clone width
-  local -a links=() entries=()
-
-  mapfile -t links < <(installed_links)
+  local link path entry desc line reply size clone width
+  local -a links=() entries=() targets=()
 
   # One "<path>\t<what it is>" record per line of the listing: keeping the
   # pair in a single element is what stops the two halves drifting apart.
-  for link in "${links[@]}"; do
-    entries+=("$(abbrev_home "$link")"$'\t'"symlink")
+  read_manifest
+  for path in "${INSTALLED_PATHS[@]}"; do
+    if [[ -L "$path" ]]; then
+      desc="symlink to the clone"
+    elif [[ -d "$path" ]]; then
+      desc="login helper"
+    else
+      desc="installed copy"
+    fi
+    entries+=("$(abbrev_home "$path")"$'\t'"$desc")
+    targets+=("$path")
   done
+
+  mapfile -t links < <(installed_links)
+  for link in "${links[@]}"; do
+    if in_list "$link" "${targets[@]}"; then continue; fi
+    entries+=("$(abbrev_home "$link")"$'\t'"symlink")
+    targets+=("$link")
+  done
+
   if [[ -d "$STATE_DIR" ]]; then
     entries+=("$(abbrev_home "$STATE_DIR")"$'\t'"cached cookie, log")
   fi
@@ -420,7 +471,14 @@ cmd_uninstall() {
     if (( ${#path} > width )); then width="${#path}"; fi
   done
 
-  clone="$(abbrev_home "$(dirname "$(dirname "$SELF")")")"
+  # `readlink -f` resolves a linked install back into the working tree, so
+  # $SELF is the clone whenever this was linked rather than copied. Run from
+  # an installed copy there is no clone to name: the parent of $PREFIX/bin is
+  # just $PREFIX, and calling that "the scripts themselves" would be a lie.
+  clone=""
+  if ! in_list "$SELF" "${targets[@]}"; then
+    clone="$(abbrev_home "$(dirname "$(dirname "$SELF")")")"
+  fi
 
   note "This will permanently remove:"
   note ""
@@ -434,7 +492,9 @@ cmd_uninstall() {
   if tunnel_pid >/dev/null; then
     note "The tunnel is up and will be disconnected first."
   fi
-  note "The clone at $clone is left alone."
+  if [[ -n "$clone" ]]; then
+    note "The clone at $clone is left alone."
+  fi
   note ""
   read -r -p "Type 'uninstall' to confirm: " reply || reply=""
   [[ "$reply" == "uninstall" ]] || die "aborted"
@@ -454,8 +514,18 @@ cmd_uninstall() {
   [[ "$STATE_DIR" == */um-vpn && "$DATA_DIR" == */um-vpn ]] ||
     die "refusing to remove unexpected paths"
 
-  for link in "${links[@]}"; do
-    rm -f "$link" || note "could not remove $link -- try: sudo rm $link"
+  # The same guard over the installed files. read_manifest already applied it,
+  # but the PATH sweep did not, and this is the last point before the rm.
+  for path in "${targets[@]}"; do
+    [[ "$path" == */um-vpn || "$path" == */um-vpn/* ]] ||
+      die "refusing to remove unexpected path: $path"
+  done
+
+  # Removing an installed copy unlinks the file this shell is still reading
+  # from. The open descriptor keeps the inode alive, so the rest of the script
+  # still runs -- it is truncating one, not unlinking it, that cuts it short.
+  for path in "${targets[@]}"; do
+    rm -rf "$path" || note "could not remove $path -- try: sudo rm -r $path"
   done
   rm -rf "$STATE_DIR" "$DATA_DIR"
   keyring_clear
@@ -468,7 +538,9 @@ cmd_uninstall() {
   note "The ADFS and Duo trust lived in the deleted profile and is gone."
   note ""
   note "Left in place:"
-  note "  $clone  (the scripts themselves; delete it yourself)"
+  if [[ -n "$clone" ]]; then
+    note "  $clone  (the scripts themselves; delete it yourself)"
+  fi
   note "  openconnect and vpnc-scripts -- other VPNs may need them:"
   note "    sudo apt remove openconnect vpnc-scripts"
 }

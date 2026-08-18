@@ -36,16 +36,35 @@ door, and the work is in making it painless.
 sudo apt install openconnect          # stock package is fine; no source build
 ```
 
-The scripts live in this repository and are linked onto `PATH`:
+The scripts live in this repository:
 
 ```bash
-ln -s "$PWD/bin/um-vpn" ~/.local/bin/um-vpn
+git clone https://github.com/xiaosq2000/um-vpn.git
+cd um-vpn && make install
 ```
 
-`bin/um-vpn` finds its helper relative to its own resolved path, so the symlink
-is enough — but the two files must move together. No Python packages are needed;
+That copies `bin/um-vpn` into `~/.local/bin` and the login helper into
+`~/.local/libexec/um-vpn`, then records both paths in a manifest so
+`um-vpn uninstall` knows exactly what it may delete later. `~/.local/bin` has to
+be on your `PATH`.
+
+`bin/um-vpn` finds its helper relative to its own resolved path, so any prefix
+works — but the two files must move together. No Python packages are needed;
 `libexec/um-vpn/browser-login.py` is standard library only (Ubuntu 26.04 is
 PEP-668 managed and this was not worth a virtualenv).
+
+| `make` target    | Effect                                                               |
+| ---------------- | -------------------------------------------------------------------- |
+| `make install`   | Copy both files into `PREFIX` (default `~/.local`), write a manifest |
+| `make link`      | Symlink `bin/um-vpn` there instead, so edits to the clone are live   |
+| `make uninstall` | Remove the installed files, leaving the cookie and profile alone     |
+| `make check`     | Run the pre-commit harness                                           |
+
+`PREFIX=/usr` installs system-wide, and `DESTDIR` stages into a build root for
+packaging; a staged build writes no manifest, since there the package manager
+owns removal. Switching between `make install` and `make link` in either
+direction clears the other's files first, so neither can strand a stale copy of
+the helper.
 
 ### Uninstall
 
@@ -54,10 +73,20 @@ um-vpn uninstall
 ```
 
 It lists what it is about to delete, waits for you to type `uninstall`, then
-disconnects the tunnel if it is up, removes every `um-vpn` symlink on `PATH`
-that resolves to this clone, deletes `~/.local/state/um-vpn` and
-`~/.local/share/um-vpn`, and clears any saved UMPASS credentials from the
-keyring.
+disconnects the tunnel if it is up, removes the paths the install manifest
+records, deletes `~/.local/state/um-vpn` and `~/.local/share/um-vpn`, and clears
+any saved UMPASS credentials from the keyring.
+
+The manifest is what makes deleting real files safe: `make install` writes down
+what it created, so uninstall removes exactly that and never has to guess
+whether some other `um-vpn` on `PATH` belongs to it. Installs predating the
+Makefile — a hand-written `ln -s` — are still picked up, but only as symlinks
+resolving back to this script. Any path in the manifest that is not a `um-vpn`
+one is refused rather than removed.
+
+`make uninstall` is the smaller hammer: it removes the installed files and
+nothing else. `um-vpn uninstall` is the one that also takes the cookie, the
+profile and the keyring entries.
 
 Order matters, which is the reason this is a subcommand rather than a line in
 this file: deleting the state directory while connected takes the PID file with
@@ -68,7 +97,7 @@ Deliberately left behind:
 
 | Left in place                 | Why                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------- |
-| The clone                     | It _is_ the program. Delete it yourself; reinstalling is the same one `ln -s`     |
+| The clone                     | What you installed from. Delete it yourself; reinstalling is one `make install`   |
 | `openconnect`, `vpnc-scripts` | System packages another VPN may need — `sudo apt remove openconnect vpnc-scripts` |
 | Your portal session           | Deleting the cookie revokes only this machine's copy — see below                  |
 
@@ -106,12 +135,19 @@ over the Chrome DevTools Protocol, which it does not implement.
 
 ### Development
 
+Install by symlink, so an edit to the clone is the installed command with no
+second step:
+
+```bash
+make link
+```
+
 There is no build and no test suite, so [pre-commit](https://pre-commit.com) is
 the whole check:
 
 ```bash
 pre-commit install          # once per clone, installs the git hook
-pre-commit run --all-files  # on demand
+pre-commit run --all-files  # on demand, same as `make check`
 ```
 
 It runs shellcheck, `ruff check` and `ruff format`, prettier over the Markdown,
@@ -195,6 +231,9 @@ and you type. This is a convenience, never a dependency.
 | ---------------------------------- | --------------------------------------- |
 | `bin/um-vpn`                       | The toggle                              |
 | `libexec/um-vpn/browser-login.py`  | Browser login + DevTools cookie harvest |
+| `~/.local/bin/um-vpn`              | The installed copy, or a `make link`    |
+| `~/.local/libexec/um-vpn/`         | The installed login helper              |
+| `~/.local/share/um-vpn/manifest`   | What the install created, for uninstall |
 | `~/.local/state/um-vpn/cookie`     | Cached DSID, mode 600                   |
 | `~/.local/state/um-vpn/tunnel.pid` | Tunnel PID (written by root)            |
 | `~/.local/state/um-vpn/tunnel.log` | Timestamped openconnect output          |

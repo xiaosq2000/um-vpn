@@ -27,3 +27,8 @@ indent_size = 2
 [*.md]
 indent_style = space
 trim_trailing_whitespace = false
+
+# Recipe lines must begin with a hard tab; an editor that helpfully expands
+# them leaves make failing with "missing separator".
+[Makefile]
+indent_style = tab

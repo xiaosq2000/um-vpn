@@ -14,7 +14,8 @@ repos:
         args: [--fix=lf]
       - id: check-merge-conflict
       - id: check-yaml
-      # bin/um-vpn is invoked through a symlink on PATH; a lost +x breaks it.
+      # `make link` puts bin/um-vpn on PATH as a symlink, so it runs with
+      # whatever mode the tree gives it; a lost +x breaks that install.
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
 
