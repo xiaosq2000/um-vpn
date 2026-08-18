@@ -7,6 +7,10 @@ session cookie, so it lives in Chrome's memory and never reliably reaches the
 on-disk cookie database.  We therefore read it over the DevTools Protocol,
 which sees cookies live.
 
+With --credentials-on-stdin the UMPASS form is filled and submitted for the
+user, which leaves only the Duo push to approve.  The credentials are typed
+into pages under --login-domain and nowhere else.
+
 Prints the cookie value on stdout; everything human-facing goes to stderr.
 
 Only the standard library is used: Ubuntu is PEP-668 managed and this is not
@@ -24,6 +28,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ACTIVE_PORT_FILE = "DevToolsActivePort"
@@ -109,15 +114,15 @@ class WebSocket:
             if fin:
                 return message.decode()
 
-    def call(self, method, params=None, timeout=15):
+    def call(self, method, params=None, timeout=15, session_id=None):
         self._next_id += 1
         want = self._next_id
-        self._frame(
-            1,
-            json.dumps(
-                {"id": want, "method": method, "params": params or {}}
-            ).encode(),
-        )
+        message = {"id": want, "method": method, "params": params or {}}
+        # A flat session multiplexes a page's domains over this same socket;
+        # replies still come back keyed by id, so nothing else changes.
+        if session_id:
+            message["sessionId"] = session_id
+        self._frame(1, json.dumps(message).encode())
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             reply = json.loads(self._recv_message())
@@ -183,14 +188,130 @@ def launch_chrome(browser, profile, url):
     )
 
 
+def host_in_domain(host, domain):
+    """True when host is the domain itself or something underneath it."""
+    return host == domain or host.endswith("." + domain)
+
+
 def find_cookie(ws, name, domain):
     for cookie in ws.call("Storage.getCookies").get("cookies", []):
         if cookie.get("name") != name:
             continue
         host = (cookie.get("domain") or "").lstrip(".")
-        if host == domain or host.endswith("." + domain):
+        if host_in_domain(host, domain):
             return cookie.get("value") or None
     return None
+
+
+# Spliced into an .apply() at the call site rather than %-formatted, so a
+# stray % in the JavaScript below cannot become a formatting error.
+FILL_JS = """
+function (user, password) {
+    const usable = (el) =>
+        !el.disabled && !el.readOnly && el.getClientRects().length > 0;
+
+    const password_field = Array.from(
+        document.querySelectorAll('input[type="password"]')
+    ).find(usable);
+    if (!password_field) return "no-form";
+
+    // Assigning .value leaves a script-driven page thinking the field is
+    // still empty, so go through the native setter and fire what a real
+    // keystroke fires.
+    const fill = (el, value) => {
+        const setter = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(el), "value"
+        ).set;
+        el.focus();
+        setter.call(el, value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+
+    const form = password_field.form;
+    const scope = form || document;
+    const id_field = Array.from(scope.querySelectorAll("input")).find(
+        (el) => usable(el) && ["text", "email"].includes(el.type)
+    );
+    // A remembered session prefills the ID and asks for the password only.
+    if (id_field && !id_field.value) fill(id_field, user);
+    fill(password_field, password);
+
+    // ADFS renders "Sign in" as a <span id="submitButton"> carrying an
+    // onclick handler, which no generic submit selector can reach.
+    const button =
+        scope.querySelector('input[type="submit"], button[type="submit"]') ||
+        document.querySelector("#submitButton");
+    if (button) {
+        button.click();
+    } else if (form) {
+        form.requestSubmit();
+    } else {
+        return "filled";
+    }
+    return "submitted";
+}
+"""
+
+
+def in_login_domain(url, suffix):
+    """True for https pages the credentials may be typed into.
+
+    A single-label suffix is refused: a portal published at foo.com would
+    derive one, and it would widen this to every https page under the TLD.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or "." not in suffix:
+        return False
+    return host_in_domain(parts.hostname or "", suffix)
+
+
+def autofill(ws, suffix, user, password):
+    """Fill and submit the sign-in form; True once a form has been handled.
+
+    One shot per run on purpose: UMPASS locks an account after a handful of
+    bad passwords, so retrying would turn one typo into a lockout of
+    everything, not just the VPN.
+    """
+    expression = f"({FILL_JS}).apply(null, {json.dumps([user, password])})"
+    for target in ws.call("Target.getTargets").get("targetInfos", []):
+        if target.get("type") != "page":
+            continue
+        if not in_login_domain(target.get("url") or "", suffix):
+            continue
+        try:
+            session = ws.call(
+                "Target.attachToTarget",
+                {"targetId": target["targetId"], "flatten": True},
+            )["sessionId"]
+        except (RuntimeError, TimeoutError, KeyError):
+            continue
+        try:
+            reply = ws.call(
+                "Runtime.evaluate",
+                {"expression": expression, "returnByValue": True},
+                session_id=session,
+            )
+        except (RuntimeError, TimeoutError):
+            continue  # navigating, most likely; the next poll tries again
+        finally:
+            try:
+                ws.call("Target.detachFromTarget", {"sessionId": session})
+            except (RuntimeError, TimeoutError):
+                pass
+        if "exceptionDetails" in reply:
+            # The detail describes a script the password is embedded in, so
+            # it is reported without being logged.
+            log("Autofill failed on the sign-in page; sign in by hand.")
+            return True
+        status = (reply.get("result") or {}).get("value")
+        if status == "submitted":
+            log("Filled the sign-in form from the keyring; approve Duo.")
+            return True
+        if status == "filled":
+            log("Filled the sign-in form; press Enter in the window.")
+            return True
+    return False
 
 
 def main():
@@ -205,12 +326,37 @@ def main():
         "--domain", required=True, help="domain the cookie must belong to"
     )
     ap.add_argument(
+        "--login-domain",
+        default="",
+        help="only type credentials into https pages under this domain",
+    )
+    ap.add_argument(
+        "--credentials-on-stdin",
+        action="store_true",
+        help="read user\\0password from stdin and fill the sign-in form",
+    )
+    ap.add_argument(
         "--timeout",
         type=float,
         default=300.0,
         help="seconds to wait for login",
     )
     args = ap.parse_args()
+
+    # argv would publish the password in `ps` and the environment would hand
+    # it to every child, the browser included; stdin reaches this process
+    # only.
+    creds = None
+    if args.credentials_on_stdin:
+        parts = sys.stdin.buffer.read().split(b"\0")
+        if len(parts) != 2 or not all(parts):
+            log("Expected user\\0password on stdin.")
+            return 1
+        try:
+            creds = (parts[0].decode(), parts[1].decode())
+        except UnicodeDecodeError:
+            log("The credentials on stdin are not valid UTF-8.")
+            return 1
 
     # A window may already be open from a previous run on this profile; Chrome
     # would just hand our launch off to it and exit, so reuse it instead.
@@ -251,6 +397,8 @@ def main():
             value = find_cookie(ws, args.cookie, args.domain)
             if value:
                 break
+            if creds and autofill(ws, args.login_domain, *creds):
+                creds = None
             time.sleep(1.0)
         else:
             log(

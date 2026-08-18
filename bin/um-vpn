@@ -1,25 +1,34 @@
 #!/usr/bin/env bash
 # UM SSL VPN toggle.
 #
-#   um-vpn            toggle: connect if down, disconnect if up
-#   um-vpn on         connect (reusing the cached cookie when it still works)
-#   um-vpn off        disconnect
-#   um-vpn status     show tunnel state
-#   um-vpn renew      force a fresh browser login, then connect
-#   um-vpn uninstall  remove the command, the cached cookie and the profile
+#   um-vpn              toggle: connect if down, disconnect if up
+#   um-vpn on           connect, reusing the cached cookie while it still works
+#   um-vpn off          disconnect
+#   um-vpn status       show tunnel state
+#   um-vpn renew        force a fresh browser login, then connect
+#   um-vpn credentials  save the UMPASS ID + password for the sign-in form
+#   um-vpn uninstall    remove the command, the cached cookie and the profile
 #
 # The portal federates to ADFS/SAML, so openconnect cannot log in by itself.
 # get-dsid.py opens a Chrome window for UMPASS + Duo and lifts the DSID session
 # cookie out of it over the DevTools protocol -- no DevTools panel, no pasting.
 #
+# `um-vpn credentials` puts the UMPASS ID and password in the login keyring;
+# the sign-in form is then filled and submitted for you, so a login costs one
+# Duo tap and nothing typed. `um-vpn credentials clear` forgets them again.
+#
 # Optional environment overrides:
 #
-#   UM_VPN_SERVER    portal URL (default https://sslvpn.um.edu.mo)
-#   UM_VPN_DOMAIN    cookie domain (default: the host part of the URL)
-#   UM_VPN_BROWSER   Chromium-family browser to drive
-#   UM_VPN_SCRIPT    path to vpnc-script
+#   UM_VPN_SERVER        portal URL (default https://sslvpn.um.edu.mo)
+#   UM_VPN_DOMAIN        cookie domain (default: the host part of the URL)
+#   UM_VPN_LOGIN_DOMAIN  domain allowed to receive the saved credentials
+#   UM_VPN_BROWSER       Chromium-family browser to drive
+#   UM_VPN_SCRIPT        path to vpnc-script
+#   UM_VPN_AUTOFILL      'off' to always type the sign-in form yourself
 #
 # The browser and vpnc-script are probed from the usual paths when unset.
+# UM_VPN_LOGIN_DOMAIN defaults to the cookie domain without its leftmost
+# label, which is where the portal hands the login off to the IdP.
 
 set -euo pipefail
 
@@ -33,6 +42,15 @@ if [[ -z "$DOMAIN" ]]; then
   DOMAIN="${DOMAIN%%/*}"
   DOMAIN="${DOMAIN%%:*}"
 fi
+
+# The saved password is typed into pages under this domain and nowhere else,
+# so a stray tab left open on the login profile can never be handed it. The
+# portal hands off one label up: sslvpn.um.edu.mo -> um.edu.mo.
+LOGIN_DOMAIN="${UM_VPN_LOGIN_DOMAIN:-${DOMAIN#*.}}"
+
+# Anything but 'off' leaves autofill on, where it stays inert until
+# `um-vpn credentials` has something to fill the form with.
+AUTOFILL="${UM_VPN_AUTOFILL:-on}"
 
 # Chromium-family only: the login is driven over the Chrome DevTools Protocol,
 # which Firefox does not speak.
@@ -129,18 +147,100 @@ require_sudo() {
   sudo -v || die "sudo authentication failed"
 }
 
+# --- credentials ----------------------------------------------------------
+
+# Attributes that identify our two items in the login keyring.
+KEYRING_ATTRS=(service um-vpn)
+
+# ID and password are stored as two items so both come back through
+# `secret-tool lookup`, which prints the secret and nothing else -- `search`
+# would put the password on stdout beside the attributes it was asked for.
+#
+# Always succeeds and prints nothing when there is no keyring, no item, or no
+# secret-tool, so callers can test the value instead of the exit status.
+keyring_get() {
+  command -v secret-tool >/dev/null || return 0
+  secret-tool lookup "${KEYRING_ATTRS[@]}" field "$1" 2>/dev/null || true
+}
+
+# The value arrives as a function argument and leaves through a builtin, so
+# it never reaches the process table on its way to the keyring.
+keyring_set() {
+  printf '%s' "$2" |
+    secret-tool store --label="UM VPN (UMPASS $1)" \
+      "${KEYRING_ATTRS[@]}" field "$1"
+}
+
+# `secret-tool clear` exits 1 when there was nothing to match, which is the
+# same outcome we want.
+keyring_clear() {
+  local field
+  for field in username password; do
+    secret-tool clear "${KEYRING_ATTRS[@]}" field "$field" 2>/dev/null || true
+  done
+}
+
+cmd_credentials() {
+  local action="${1:-store}" user pass
+  command -v secret-tool >/dev/null ||
+    die "secret-tool not found; install libsecret-tools"
+
+  case "$action" in
+    store)
+      [[ -t 0 ]] || die "credentials needs a terminal to read the password"
+      read -r -p 'UMPASS ID: ' user || die "aborted"
+      [[ -n "$user" ]] || die "no ID given"
+      read -rs -p 'UMPASS password: ' pass || die "aborted"
+      note ""
+      [[ -n "$pass" ]] || die "no password given"
+      keyring_set username "$user" || die "could not write to the keyring"
+      keyring_set password "$pass" || die "could not write to the keyring"
+      note "Saved in the login keyring."
+      note "um-vpn fills the sign-in form from now on; Duo is still yours."
+      ;;
+    clear)
+      keyring_clear
+      note "Forgot the saved UMPASS credentials."
+      ;;
+    *)
+      die "unknown: um-vpn credentials [store|clear]"
+      ;;
+  esac
+}
+
 # --- cookie ---------------------------------------------------------------
 
 fresh_dsid() {
-  local browser
+  local browser user="" pass=""
+  local -a cmd
   [[ -r "$GET_DSID" ]] || die "helper not found: $GET_DSID"
   browser="$(find_browser)"
-  python3 "$GET_DSID" \
-    --browser "$browser" \
-    --profile "$CHROME_PROFILE" \
-    --url "$SERVER" \
-    --cookie DSID \
+  cmd=(
+    python3 "$GET_DSID"
+    --browser "$browser"
+    --profile "$CHROME_PROFILE"
+    --url "$SERVER"
+    --cookie DSID
     --domain "$DOMAIN"
+    --login-domain "$LOGIN_DOMAIN"
+  )
+
+  if [[ "$AUTOFILL" != off ]]; then
+    user="$(keyring_get username)"
+  fi
+  # Each lookup is a D-Bus round trip, so the password is only asked for once
+  # an ID has proved there is something saved to go with it.
+  if [[ -n "$user" ]]; then
+    pass="$(keyring_get password)"
+  fi
+
+  # NUL-separated on stdin: argv would expose the password in `ps` output,
+  # exactly as --cookie would expose the session below.
+  if [[ -n "$pass" ]]; then
+    printf '%s\0%s' "$user" "$pass" | "${cmd[@]}" --credentials-on-stdin
+  else
+    "${cmd[@]}"
+  fi
 }
 
 store_dsid() {
@@ -300,6 +400,9 @@ cmd_uninstall() {
     size="$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)"
     entries+=("$(tilde "$DATA_DIR")"$'\t'"Chrome profile${size:+, $size}")
   fi
+  if [[ -n "$(keyring_get username)" ]]; then
+    entries+=("login keyring"$'\t'"saved UMPASS credentials")
+  fi
 
   if (( ${#entries[@]} == 0 )); then
     note "Nothing to remove; um-vpn is not installed for this user."
@@ -353,6 +456,7 @@ cmd_uninstall() {
     rm -f "$link" || note "could not remove $link -- try: sudo rm $link"
   done
   rm -rf "$STATE_DIR" "$DATA_DIR"
+  keyring_clear
   note "Removed."
   note ""
 
@@ -385,6 +489,7 @@ case "${1-toggle}" in
   off|down|disconnect) cmd_off ;;
   status) cmd_status ;;
   renew|relogin) cmd_renew ;;
+  credentials|creds) shift; cmd_credentials "$@" ;;
   uninstall) cmd_uninstall ;;
   -h|--help|help) usage ;;
   *) die "unknown command: $1 (try --help)" ;;

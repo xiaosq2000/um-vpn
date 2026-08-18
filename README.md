@@ -55,8 +55,9 @@ um-vpn uninstall
 
 It lists what it is about to delete, waits for you to type `uninstall`, then
 disconnects the tunnel if it is up, removes every `um-vpn` symlink on `PATH`
-that resolves to this clone, and deletes `~/.local/state/um-vpn` and
-`~/.local/share/um-vpn`.
+that resolves to this clone, deletes `~/.local/state/um-vpn` and
+`~/.local/share/um-vpn`, and clears any saved UMPASS credentials from the
+keyring.
 
 Order matters, which is the reason this is a subcommand rather than a line in
 this file: deleting the state directory while connected takes the PID file with
@@ -82,12 +83,14 @@ gone with it.
 The defaults target UM on Ubuntu, so nothing needs setting. Each is overridable
 from the environment:
 
-| Variable         | Default                         | Purpose                          |
-| ---------------- | ------------------------------- | -------------------------------- |
-| `UM_VPN_SERVER`  | `https://sslvpn.um.edu.mo`      | Portal URL                       |
-| `UM_VPN_DOMAIN`  | host part of `UM_VPN_SERVER`    | Domain the cookie must belong to |
-| `UM_VPN_BROWSER` | first Chromium-family on `PATH` | Browser to drive for the login   |
-| `UM_VPN_SCRIPT`  | first path found (below)        | `vpnc-script` location           |
+| Variable              | Default                                    | Purpose                                                                                                                                                 |
+| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UM_VPN_SERVER`       | `https://sslvpn.um.edu.mo`                 | Portal URL                                                                                                                                              |
+| `UM_VPN_DOMAIN`       | host part of `UM_VPN_SERVER`               | Domain the cookie must belong to                                                                                                                        |
+| `UM_VPN_BROWSER`      | first Chromium-family on `PATH`            | Browser to drive for the login                                                                                                                          |
+| `UM_VPN_SCRIPT`       | first path found (below)                   | `vpnc-script` location                                                                                                                                  |
+| `UM_VPN_LOGIN_DOMAIN` | `UM_VPN_DOMAIN` without its leftmost label | Domain the saved credentials may be typed into. Two labels minimum — a single-label value is refused rather than opening every `https` page under a TLD |
+| `UM_VPN_AUTOFILL`     | `on`                                       | `off` keeps the credentials but leaves the form to you                                                                                                  |
 
 Because the cookie domain defaults to the server's host, pointing this at a
 different Juniper/Pulse portal takes only `UM_VPN_SERVER`.
@@ -120,14 +123,15 @@ truth.
 
 ## Usage
 
-| Command            | Effect                                                            |
-| ------------------ | ----------------------------------------------------------------- |
-| `um-vpn`           | Toggle — connect if down, disconnect if up                        |
-| `um-vpn on`        | Connect, reusing the cached session cookie when it still works    |
-| `um-vpn off`       | Disconnect                                                        |
-| `um-vpn status`    | Tunnel state, interface address, cookie age, log path             |
-| `um-vpn renew`     | Discard the cached cookie, force a fresh browser login, reconnect |
-| `um-vpn uninstall` | Disconnect, then remove the command, the cookie and the profile   |
+| Command              | Effect                                                            |
+| -------------------- | ----------------------------------------------------------------- |
+| `um-vpn`             | Toggle — connect if down, disconnect if up                        |
+| `um-vpn on`          | Connect, reusing the cached session cookie when it still works    |
+| `um-vpn off`         | Disconnect                                                        |
+| `um-vpn status`      | Tunnel state, interface address, cookie age, log path             |
+| `um-vpn renew`       | Discard the cached cookie, force a fresh browser login, reconnect |
+| `um-vpn credentials` | Save the UMPASS ID + password so the sign-in form fills itself    |
+| `um-vpn uninstall`   | Disconnect, then remove the command, the cookie and the profile   |
 
 A connect asks for your sudo password up front (before any window appears), then
 either reuses the cached cookie or opens a login window.
@@ -163,6 +167,27 @@ typing, no Duo push.
 If the tunnel merely dropped and the cookie is still within its gateway
 lifetime, there is no window at all: the cached cookie is tried first.
 
+### Stop typing the UMPASS password
+
+```bash
+um-vpn credentials        # prompts for the ID, then the password
+um-vpn credentials clear  # forget them again
+```
+
+Both land in the login keyring (libsecret, under `service=um-vpn`), which GNOME
+unlocks with your desktop session. From then on `get-dsid.py` fills the sign-in
+form and submits it, so even a full login is one Duo tap and nothing typed.
+
+| Guard                                                                                                                                  | Why                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| The password is typed only into `https://` pages under `UM_VPN_LOGIN_DOMAIN` — `um.edu.mo` by default, and never a single-label domain | A tab left open on anything else in the login profile can never be handed it                                                            |
+| The form is filled once per login, never retried                                                                                       | UMPASS locks the account after a few bad passwords, and a retry loop would turn one typo into a lockout of everything, not just the VPN |
+| The values reach the helper NUL-separated on stdin                                                                                     | `ps` shows argv to every user on the machine, and the environment would be inherited by Chrome                                          |
+
+No credentials saved, keyring locked, `secret-tool` missing, or
+`UM_VPN_AUTOFILL=off` — each falls back to the old behaviour: the window opens
+and you type. This is a convenience, never a dependency.
+
 ## Files and state
 
 | Path                                    | Contents                                |
@@ -173,6 +198,7 @@ lifetime, there is no window at all: the cached cookie is tried first.
 | `~/.local/state/um-vpn/openconnect.pid` | Tunnel PID (written by root)            |
 | `~/.local/state/um-vpn/openconnect.log` | Timestamped openconnect output          |
 | `~/.local/share/um-vpn/chrome`          | Dedicated Chrome profile, mode 700      |
+| login keyring, `service=um-vpn`         | UMPASS ID and password, once saved      |
 
 ## Security notes
 
@@ -185,6 +211,13 @@ lifetime, there is no window at all: the cached cookie is tried first.
 - The dedicated Chrome profile holds an ADFS SSO cookie once you tick "keep me
   signed in". That is the price of silent reconnects. Delete the profile
   directory — or run `um-vpn uninstall` — to revoke it.
+- The UMPASS password, when saved, is in the login keyring rather than any file
+  in this repo or under `~/.local`. It is handed to `get-dsid.py` on stdin, and
+  from there straight into a DevTools `Runtime.evaluate` on a page under
+  `UM_VPN_LOGIN_DOMAIN` — never into argv, the environment, or a log line.
+  `um-vpn credentials clear` removes it.
+- The sign-in form is filled at most once per login. That is a lockout guard,
+  not a UX choice: UMPASS is the account behind email and everything else.
 - Do **not** click Logout on the portal — that invalidates the cookie
   server-side. The exception is uninstalling, where killing the session is the
   point.
@@ -206,6 +239,16 @@ lifetime, there is no window at all: the cached cookie is tried first.
 | Reading `DSID` from Chrome's `Cookies` sqlite file                         | Unreliable: HttpOnly _session_ cookie, so it may never be written to disk, and on-disk values are AES-encrypted against a gnome-keyring key                                                                          |
 | NetworkManager openconnect plugin (GNOME quick-settings toggle)            | Not pursued — plugin 1.2.10's embedded WebKit auth dialog is an unknown against Duo's Universal Prompt. Still a reasonable fallback if the terminal toggle ever stops fitting                                        |
 | **`--protocol=nc --cookie-on-stdin` with a browser-harvested DSID**        | **Works**, even with stock 9.12 — the legacy protocol skips the modern client policy checks                                                                                                                          |
+
+### Why the credentials live in the keyring (2026-08)
+
+| Alternative                                                    | Result                                                                                                                                                                                              |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chrome's own password manager in the dedicated profile         | Rejected: it fills but does not submit, so the login stays hands-on, and the value sits in Chrome's `Login Data` where `um-vpn` can neither read it nor revoke it on uninstall                      |
+| A file under `~/.local/share/um-vpn`, plain or `gpg`-encrypted | Rejected: plain text buys nothing the keyring does not already give; `gpg` just trades the UMPASS prompt for a pinentry one                                                                         |
+| `pass` or an external password-manager command                 | Not pursued: another dependency and another unlock for the same result, when libsecret is already running and unlocked under GNOME                                                                  |
+| Typing the form with `Input.dispatchKeyEvent`                  | Not pursued: per-keystroke round trips that depend on focus and keyboard layout. Setting the value through the native setter and firing `input`/`change` convinces script-driven pages just as well |
+| **`secret-tool` plus a DevTools fill, submitted for you**      | **Works** — one `um-vpn credentials`, and logins cost a Duo tap                                                                                                                                     |
 
 ## Troubleshooting
 

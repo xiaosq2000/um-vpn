@@ -37,7 +37,14 @@ Breaking any of these fails in a way the diff does not show.
 - **Helper contract:** `get-dsid.py` prints the cookie value on **stdout**,
   everything human-facing on **stderr**, and exits 1 on failure / 130 on Ctrl-C.
   `fresh_dsid()` captures stdout, so any stray `print()` to stdout becomes part
-  of the cookie.
+  of the cookie. With `--credentials-on-stdin` its **stdin** is a pipe from
+  `fresh_dsid()` carrying `user\0password`, read whole before Chrome launches --
+  nothing else may read it.
+- **The sign-in form is filled at most once per run.** `autofill()` reports that
+  it handled a form and `main()` drops the credentials then and there. UMPASS
+  locks the account after a handful of bad passwords, so a "retry if the form
+  came back" edit reads as harmless and costs the user their whole account, not
+  just the VPN.
 - **`tunnel_pid()` probes `/proc`, not `kill -0`** — openconnect runs as root,
   so `kill -0` returns EPERM. Do not "simplify" it.
 - **Teardown is a single `sudo sh -c`** (TERM → 10s poll → KILL → rm pidfile) so
@@ -61,6 +68,12 @@ Breaking any of these fails in a way the diff does not show.
 The DSID **is** a live authenticated session — treat it as a password.
 
 - Pass it via `--cookie-on-stdin`, never `--cookie` (which exposes it in `ps`).
+- The UMPASS password has the same rule: it reaches the helper on stdin, never
+  argv (`ps` again) or the environment (which Chrome would inherit), and is
+  typed only into `https` pages under `UM_VPN_LOGIN_DOMAIN`.
+- `keyring_get` always succeeds and prints nothing when there is no item, no
+  keyring, or no `secret-tool`, so callers test the value rather than the exit
+  status. A well-meaning `|| die` there breaks every machine without libsecret.
 - The state dir is `install -d -m 700`; the cookie is written under
   `(umask 077)`.
 - Never echo a DSID value, a log line containing one, or the contents of the
