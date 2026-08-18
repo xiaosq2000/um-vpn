@@ -1,7 +1,7 @@
 # Runtime state lives under XDG dirs, never in the tree. These entries are a
 # guard against a stray copy being staged -- the DSID cookie is a live session.
-dsid
-openconnect.pid
+cookie
+tunnel.pid
 *.log
 chrome/
 

@@ -191,15 +191,15 @@ and you type. This is a convenience, never a dependency.
 
 ## Files and state
 
-| Path                                    | Contents                                |
-| --------------------------------------- | --------------------------------------- |
-| `bin/um-vpn`                            | The toggle                              |
-| `libexec/um-vpn/browser-login.py`       | Browser login + DevTools cookie harvest |
-| `~/.local/state/um-vpn/dsid`            | Cached DSID, mode 600                   |
-| `~/.local/state/um-vpn/openconnect.pid` | Tunnel PID (written by root)            |
-| `~/.local/state/um-vpn/openconnect.log` | Timestamped openconnect output          |
-| `~/.local/share/um-vpn/chrome`          | Dedicated Chrome profile, mode 700      |
-| login keyring, `service=um-vpn`         | UMPASS ID and password, once saved      |
+| Path                               | Contents                                |
+| ---------------------------------- | --------------------------------------- |
+| `bin/um-vpn`                       | The toggle                              |
+| `libexec/um-vpn/browser-login.py`  | Browser login + DevTools cookie harvest |
+| `~/.local/state/um-vpn/cookie`     | Cached DSID, mode 600                   |
+| `~/.local/state/um-vpn/tunnel.pid` | Tunnel PID (written by root)            |
+| `~/.local/state/um-vpn/tunnel.log` | Timestamped openconnect output          |
+| `~/.local/share/um-vpn/chrome`     | Dedicated Chrome profile, mode 700      |
+| login keyring, `service=um-vpn`    | UMPASS ID and password, once saved      |
 
 ## Security notes
 
@@ -207,7 +207,7 @@ and you type. This is a convenience, never a dependency.
   the DSID is visible in `ps` output to every user on the machine, and lands in
   shell history. Treat the DSID like a password: it _is_ your authenticated
   session.
-- `~/.local/state/um-vpn/dsid` is mode 600. It is a live session until the
+- `~/.local/state/um-vpn/cookie` is mode 600. It is a live session until the
   gateway expires it; `um-vpn renew` invalidates your local copy.
 - The dedicated Chrome profile holds an ADFS SSO cookie once you tick "keep me
   signed in". That is the price of silent reconnects. Delete the profile
