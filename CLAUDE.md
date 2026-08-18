@@ -36,10 +36,10 @@ Breaking any of these fails in a way the diff does not show.
   moving one file without the other is not.
 - **Helper contract:** `browser-login.py` prints the cookie value on **stdout**,
   everything human-facing on **stderr**, and exits 1 on failure / 130 on Ctrl-C.
-  `fresh_dsid()` captures stdout, so any stray `print()` to stdout becomes part
-  of the cookie. With `--credentials-on-stdin` its **stdin** is a pipe from
-  `fresh_dsid()` carrying `user\0password`, read whole before Chrome launches --
-  nothing else may read it.
+  `browser_login()` captures stdout, so any stray `print()` to stdout becomes
+  part of the cookie. With `--credentials-on-stdin` its **stdin** is a pipe from
+  `browser_login()` carrying `user\0password`, read whole before Chrome launches
+  -- nothing else may read it.
 - **The sign-in form is filled at most once per run.** `autofill()` reports that
   it handled a form and `main()` drops the credentials then and there. UMPASS
   locks the account after a handful of bad passwords, so a "retry if the form

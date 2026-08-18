@@ -34,21 +34,21 @@
 
 set -euo pipefail
 
-SERVER="${UM_VPN_PORTAL_URL:-https://sslvpn.um.edu.mo}"
+PORTAL_URL="${UM_VPN_PORTAL_URL:-https://sslvpn.um.edu.mo}"
 
-# Default the cookie domain to the server's host, so pointing this at another
-# Juniper/Pulse portal only takes the one override.
-DOMAIN="${UM_VPN_COOKIE_DOMAIN:-}"
-if [[ -z "$DOMAIN" ]]; then
-  DOMAIN="${SERVER#*://}"
-  DOMAIN="${DOMAIN%%/*}"
-  DOMAIN="${DOMAIN%%:*}"
+# Default the cookie domain to the portal URL's host, so pointing this at
+# another Juniper/Pulse portal only takes the one override.
+COOKIE_DOMAIN="${UM_VPN_COOKIE_DOMAIN:-}"
+if [[ -z "$COOKIE_DOMAIN" ]]; then
+  COOKIE_DOMAIN="${PORTAL_URL#*://}"
+  COOKIE_DOMAIN="${COOKIE_DOMAIN%%/*}"
+  COOKIE_DOMAIN="${COOKIE_DOMAIN%%:*}"
 fi
 
 # The saved password is typed into pages under this domain and nowhere else,
 # so a stray tab left open on the login profile can never be handed it. The
 # portal hands off one label up: sslvpn.um.edu.mo -> um.edu.mo.
-LOGIN_DOMAIN="${UM_VPN_LOGIN_DOMAIN:-${DOMAIN#*.}}"
+LOGIN_DOMAIN="${UM_VPN_LOGIN_DOMAIN:-${COOKIE_DOMAIN#*.}}"
 
 # Anything but 'off' leaves autofill on, where it stays inert until
 # `um-vpn credentials` has something to fill the form with.
@@ -80,7 +80,7 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/um-vpn"
 COOKIE_FILE="$STATE_DIR/dsid"
 PID_FILE="$STATE_DIR/openconnect.pid"
 LOG_FILE="$STATE_DIR/openconnect.log"
-CHROME_PROFILE="$DATA_DIR/chrome"
+BROWSER_PROFILE="$DATA_DIR/chrome"
 
 SELF="$(readlink -f "$0")"
 LOGIN_HELPER="$(dirname "$SELF")/../libexec/um-vpn/browser-login.py"
@@ -212,7 +212,7 @@ cmd_credentials() {
 
 # --- cookie ---------------------------------------------------------------
 
-fresh_dsid() {
+browser_login() {
   local browser user="" pass=""
   local -a cmd
   [[ -r "$LOGIN_HELPER" ]] || die "helper not found: $LOGIN_HELPER"
@@ -220,10 +220,10 @@ fresh_dsid() {
   cmd=(
     python3 "$LOGIN_HELPER"
     --browser "$browser"
-    --profile "$CHROME_PROFILE"
-    --url "$SERVER"
+    --profile "$BROWSER_PROFILE"
+    --url "$PORTAL_URL"
     --cookie DSID
-    --domain "$DOMAIN"
+    --domain "$COOKIE_DOMAIN"
     --login-domain "$LOGIN_DOMAIN"
   )
 
@@ -245,7 +245,7 @@ fresh_dsid() {
   fi
 }
 
-store_dsid() {
+save_cookie() {
   install -d -m 700 "$STATE_DIR"
   (umask 077; printf '%s\n' "$1" >"$COOKIE_FILE")
 }
@@ -260,7 +260,7 @@ store_dsid() {
 # SC2024: the redirect is intentionally the calling shell's, not sudo's -- the
 # log lives in the user's own state dir and must stay user-owned.
 # shellcheck disable=SC2024
-connect_with() {
+start_tunnel() {
   printf 'DSID=%s\n' "$1" | sudo openconnect \
     --protocol=nc \
     --cookie-on-stdin \
@@ -270,7 +270,7 @@ connect_with() {
     --timestamp \
     --pid-file "$PID_FILE" \
     --script "$VPNC_SCRIPT" \
-    "$SERVER" >>"$LOG_FILE" 2>&1
+    "$PORTAL_URL" >>"$LOG_FILE" 2>&1
 }
 
 cmd_on() {
@@ -288,7 +288,7 @@ cmd_on() {
 
   if [[ -s "$COOKIE_FILE" ]]; then
     note "Trying the cached session cookie..."
-    if connect_with "$(<"$COOKIE_FILE")"; then
+    if start_tunnel "$(<"$COOKIE_FILE")"; then
       note "Connected."
       cmd_status
       return 0
@@ -296,11 +296,11 @@ cmd_on() {
     note "Cached cookie was rejected; a fresh login is needed."
   fi
 
-  dsid="$(fresh_dsid)" || die "could not obtain a DSID cookie"
+  dsid="$(browser_login)" || die "could not obtain a DSID cookie"
   [[ -n "$dsid" ]] || die "browser login produced an empty DSID"
-  store_dsid "$dsid"
+  save_cookie "$dsid"
 
-  if connect_with "$dsid"; then
+  if start_tunnel "$dsid"; then
     note "Connected."
     cmd_status
     return 0
@@ -363,7 +363,7 @@ cmd_status() {
 # --- uninstall ------------------------------------------------------------
 
 # Abbreviate $HOME so the confirmation listing stays readable at a glance.
-tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
+abbrev_home() { printf '%s' "${1/#"$HOME"/\~}"; }
 
 # Only symlinks resolving back to this script are ours to delete: a real file
 # named um-vpn on PATH belongs to something else, and the clone is never
@@ -393,14 +393,14 @@ cmd_uninstall() {
   # One "<path>\t<what it is>" record per line of the listing: keeping the
   # pair in a single element is what stops the two halves drifting apart.
   for link in "${links[@]}"; do
-    entries+=("$(tilde "$link")"$'\t'"symlink")
+    entries+=("$(abbrev_home "$link")"$'\t'"symlink")
   done
   if [[ -d "$STATE_DIR" ]]; then
-    entries+=("$(tilde "$STATE_DIR")"$'\t'"cached cookie, log")
+    entries+=("$(abbrev_home "$STATE_DIR")"$'\t'"cached cookie, log")
   fi
   if [[ -d "$DATA_DIR" ]]; then
     size="$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)"
-    entries+=("$(tilde "$DATA_DIR")"$'\t'"Chrome profile${size:+, $size}")
+    entries+=("$(abbrev_home "$DATA_DIR")"$'\t'"Chrome profile${size:+, $size}")
   fi
   if [[ -n "$(keyring_get username)" ]]; then
     entries+=("login keyring"$'\t'"saved UMPASS credentials")
@@ -420,7 +420,7 @@ cmd_uninstall() {
     if (( ${#path} > width )); then width="${#path}"; fi
   done
 
-  clone="$(tilde "$(dirname "$(dirname "$SELF")")")"
+  clone="$(abbrev_home "$(dirname "$(dirname "$SELF")")")"
 
   note "This will permanently remove:"
   note ""
@@ -464,7 +464,7 @@ cmd_uninstall() {
 
   # Deleting the cookie only revokes this machine's copy of the session.
   note "Your portal session stays valid until the gateway expires it."
-  note "To end it now, open $SERVER in a browser and log out."
+  note "To end it now, open $PORTAL_URL in a browser and log out."
   note "The ADFS and Duo trust lived in the deleted profile and is gone."
   note ""
   note "Left in place:"

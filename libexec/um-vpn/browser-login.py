@@ -164,7 +164,7 @@ def devtools_alive(port):
         return False
 
 
-def launch_chrome(browser, profile, url):
+def launch_browser(browser, profile, url):
     os.makedirs(profile, mode=0o700, exist_ok=True)
     stale = os.path.join(profile, ACTIVE_PORT_FILE)
     if os.path.exists(stale):
@@ -205,7 +205,7 @@ def find_cookie(ws, name, domain):
 
 # Spliced into an .apply() at the call site rather than %-formatted, so a
 # stray % in the JavaScript below cannot become a formatting error.
-FILL_JS = """
+FILL_FORM_JS = """
 function (user, password) {
     const usable = (el) =>
         !el.disabled && !el.readOnly && el.getClientRects().length > 0;
@@ -273,7 +273,8 @@ def autofill(ws, suffix, user, password):
     bad passwords, so retrying would turn one typo into a lockout of
     everything, not just the VPN.
     """
-    expression = f"({FILL_JS}).apply(null, {json.dumps([user, password])})"
+    js_args = json.dumps([user, password])
+    expression = f"({FILL_FORM_JS}).apply(null, {js_args})"
     for target in ws.call("Target.getTargets").get("targetInfos", []):
         if target.get("type") != "page":
             continue
@@ -370,7 +371,7 @@ def main():
             "-- sign in with UMPASS + Duo."
         )
         log("The window closes by itself once the session cookie appears.")
-        proc = launch_chrome(args.browser, args.profile, args.url)
+        proc = launch_browser(args.browser, args.profile, args.url)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             endpoint = read_devtools_endpoint(args.profile)
