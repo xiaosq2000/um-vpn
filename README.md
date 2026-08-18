@@ -1,9 +1,8 @@
 # UM SSL VPN on Ubuntu with OpenConnect
 
-_Written 2026-07-02; reworked 2026-08-16 into a one-word toggle. Verified
-against Ubuntu 26.04 (OpenConnect 9.12, Chrome 151) and the UM gateway at that
-date. If ICTO upgrades the gateway firmware or changes the ADFS login flow,
-revisit Troubleshooting._
+Verified against Ubuntu 26.04 (OpenConnect 9.12, Chrome 151) and the UM gateway
+at that date. If ICTO upgrades the gateway firmware or changes the ADFS login
+flow, revisit Troubleshooting.
 
 The official **Ivanti Secure Access Client** does not support recent Ubuntu
 releases. This is the working alternative: OpenConnect's legacy Network Connect
@@ -66,11 +65,11 @@ to stop it.
 
 Deliberately left behind:
 
-| Left in place                 | Why                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------- |
-| The clone                     | It _is_ the program. Delete it yourself; reinstalling is the same one `ln -s`    |
+| Left in place                 | Why                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| The clone                     | It _is_ the program. Delete it yourself; reinstalling is the same one `ln -s`     |
 | `openconnect`, `vpnc-scripts` | System packages another VPN may need — `sudo apt remove openconnect vpnc-scripts` |
-| Your portal session           | Deleting the cookie revokes only this machine's copy — see below                 |
+| Your portal session           | Deleting the cookie revokes only this machine's copy — see below                  |
 
 The gateway keeps your session alive until it expires on its own, so uninstall
 inverts the usual advice: this is the one time you _should_ open the portal and
@@ -80,8 +79,8 @@ gone with it.
 
 ### Configuration
 
-The defaults target UM on Ubuntu, so nothing needs setting. Each is
-overridable from the environment:
+The defaults target UM on Ubuntu, so nothing needs setting. Each is overridable
+from the environment:
 
 | Variable         | Default                         | Purpose                          |
 | ---------------- | ------------------------------- | -------------------------------- |
@@ -95,13 +94,12 @@ different Juniper/Pulse portal takes only `UM_VPN_SERVER`.
 
 `vpnc-script` is looked for at `/usr/share/vpnc-scripts/vpnc-script`,
 `/etc/vpnc/vpnc-script`, `/usr/share/vpnc/vpnc-script`,
-`/usr/local/etc/vpnc/vpnc-script` and `/opt/homebrew/etc/vpnc/vpnc-script`,
-in that order. On Debian and Ubuntu it ships in the `vpnc-scripts` package.
+`/usr/local/etc/vpnc/vpnc-script` and `/opt/homebrew/etc/vpnc/vpnc-script`, in
+that order. On Debian and Ubuntu it ships in the `vpnc-scripts` package.
 
-The browser must be Chromium-family — `google-chrome`,
-`google-chrome-stable`, `chromium` or `chromium-browser`. Firefox cannot
-stand in: the login is driven over the Chrome DevTools Protocol, which it
-does not implement.
+The browser must be Chromium-family — `google-chrome`, `google-chrome-stable`,
+`chromium` or `chromium-browser`. Firefox cannot stand in: the login is driven
+over the Chrome DevTools Protocol, which it does not implement.
 
 ### Development
 
@@ -121,14 +119,14 @@ truth for both.
 
 ## Usage
 
-| Command              | Effect                                                            |
-| -------------------- | ----------------------------------------------------------------- |
-| `um-vpn`             | Toggle — connect if down, disconnect if up                        |
-| `um-vpn on`          | Connect, reusing the cached session cookie when it still works    |
-| `um-vpn off`         | Disconnect                                                        |
-| `um-vpn status`      | Tunnel state, interface address, cookie age, log path             |
-| `um-vpn renew`       | Discard the cached cookie, force a fresh browser login, reconnect |
-| `um-vpn uninstall`   | Disconnect, then remove the command, the cookie and the profile   |
+| Command            | Effect                                                            |
+| ------------------ | ----------------------------------------------------------------- |
+| `um-vpn`           | Toggle — connect if down, disconnect if up                        |
+| `um-vpn on`        | Connect, reusing the cached session cookie when it still works    |
+| `um-vpn off`       | Disconnect                                                        |
+| `um-vpn status`    | Tunnel state, interface address, cookie age, log path             |
+| `um-vpn renew`     | Discard the cached cookie, force a fresh browser login, reconnect |
+| `um-vpn uninstall` | Disconnect, then remove the command, the cookie and the profile   |
 
 A connect asks for your sudo password up front (before any window appears), then
 either reuses the cached cookie or opens a login window.

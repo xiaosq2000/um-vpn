@@ -268,44 +268,40 @@ tilde() { printf '%s' "${1/#"$HOME"/\~}"; }
 # touched -- reinstalling is the same one `ln -s` as before.
 installed_links() {
   local dir link
-  local -A seen=()
   local -a dirs=()
   IFS=: read -r -a dirs <<<"$PATH"
-  # The README puts the symlink here, so look even if PATH has moved on.
+  # The README puts the symlink here, so look even if PATH has moved on --
+  # awk then drops the duplicate when PATH already lists it.
   dirs+=("$HOME/.local/bin")
   for dir in "${dirs[@]}"; do
-    [[ -n "$dir" ]] || continue
     link="$dir/um-vpn"
-    [[ -L "$link" && -z "${seen["$link"]:-}" ]] || continue
-    seen["$link"]=1
+    [[ -n "$dir" && -L "$link" ]] || continue
     if [[ "$(readlink -f "$link")" == "$SELF" ]]; then
       printf '%s\n' "$link"
     fi
-  done
+  done | awk '!seen[$0]++'
 }
 
 cmd_uninstall() {
-  local link reply size clone width i
-  local -a links=() paths=() descs=()
+  local link entry path desc line reply size clone width
+  local -a links=() entries=()
 
   mapfile -t links < <(installed_links)
-  clone="$(dirname "$(dirname "$SELF")")"
 
+  # One "<path>\t<what it is>" record per line of the listing: keeping the
+  # pair in a single element is what stops the two halves drifting apart.
   for link in "${links[@]}"; do
-    paths+=("$(tilde "$link")")
-    descs+=("symlink")
+    entries+=("$(tilde "$link")"$'\t'"symlink")
   done
   if [[ -d "$STATE_DIR" ]]; then
-    paths+=("$(tilde "$STATE_DIR")")
-    descs+=("cached cookie, log")
+    entries+=("$(tilde "$STATE_DIR")"$'\t'"cached cookie, log")
   fi
   if [[ -d "$DATA_DIR" ]]; then
     size="$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1)"
-    paths+=("$(tilde "$DATA_DIR")")
-    descs+=("Chrome profile${size:+, $size}")
+    entries+=("$(tilde "$DATA_DIR")"$'\t'"Chrome profile${size:+, $size}")
   fi
 
-  if (( ${#paths[@]} == 0 )); then
+  if (( ${#entries[@]} == 0 )); then
     note "Nothing to remove; um-vpn is not installed for this user."
     return 0
   fi
@@ -314,32 +310,42 @@ cmd_uninstall() {
 
   # Pad to the longest path so the listing reads as a column, not a paragraph.
   width=0
-  for i in "${!paths[@]}"; do
-    if (( ${#paths[i]} > width )); then width="${#paths[i]}"; fi
+  for entry in "${entries[@]}"; do
+    path="${entry%%$'\t'*}"
+    if (( ${#path} > width )); then width="${#path}"; fi
   done
+
+  clone="$(tilde "$(dirname "$(dirname "$SELF")")")"
 
   note "This will permanently remove:"
   note ""
-  for i in "${!paths[@]}"; do
-    note "$(printf '  %-*s  (%s)' "$width" "${paths[i]}" "${descs[i]}")"
+  for entry in "${entries[@]}"; do
+    path="${entry%%$'\t'*}"
+    desc="${entry#*$'\t'}"
+    printf -v line '  %-*s  (%s)' "$width" "$path" "$desc"
+    note "$line"
   done
   note ""
   if tunnel_pid >/dev/null; then
     note "The tunnel is up and will be disconnected first."
   fi
-  note "The clone at $(tilde "$clone") is left alone."
+  note "The clone at $clone is left alone."
   note ""
   read -r -p "Type 'uninstall' to confirm: " reply || reply=""
   [[ "$reply" == "uninstall" ]] || die "aborted"
 
   # Tear the tunnel down before the pidfile goes: otherwise openconnect keeps
-  # running as root with no supported way left to stop it.
-  if tunnel_pid >/dev/null || [[ -e "$PID_FILE" ]]; then
+  # running as root with no supported way left to stop it. cmd_off already
+  # sorts a live tunnel from a stale pidfile, so the file existing is the
+  # whole condition -- and it is re-checked here, not before the prompt,
+  # because the tunnel can drop while the user is reading.
+  if [[ -e "$PID_FILE" ]]; then
     cmd_off
   fi
 
-  # Both are built as <xdg-dir>/um-vpn. This is the only irreversible thing
-  # um-vpn does, so check that rather than trust it.
+  # Both are built as <xdg-dir>/um-vpn at the top of this script, so this
+  # cannot fire today. It is a tripwire for a later edit that makes those
+  # paths configurable, guarding the only irreversible thing um-vpn does.
   [[ "$STATE_DIR" == */um-vpn && "$DATA_DIR" == */um-vpn ]] ||
     die "refusing to remove unexpected paths"
 
@@ -356,7 +362,7 @@ cmd_uninstall() {
   note "The ADFS and Duo trust lived in the deleted profile and is gone."
   note ""
   note "Left in place:"
-  note "  $(tilde "$clone")  (the scripts themselves; delete it yourself)"
+  note "  $clone  (the scripts themselves; delete it yourself)"
   note "  openconnect and vpnc-scripts -- other VPNs may need them:"
   note "    sudo apt remove openconnect vpnc-scripts"
 }
