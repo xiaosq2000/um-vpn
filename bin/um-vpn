@@ -10,8 +10,9 @@
 #   um-vpn uninstall    remove the command, the cached cookie and the profile
 #
 # The portal federates to ADFS/SAML, so openconnect cannot log in by itself.
-# get-dsid.py opens a Chrome window for UMPASS + Duo and lifts the DSID session
-# cookie out of it over the DevTools protocol -- no DevTools panel, no pasting.
+# browser-login.py opens a Chrome window for UMPASS + Duo and lifts the DSID
+# session cookie out of it over the DevTools protocol -- no DevTools panel, no
+# pasting.
 #
 # `um-vpn credentials` puts the UMPASS ID and password in the login keyring;
 # the sign-in form is then filled and submitted for you, so a login costs one
@@ -81,7 +82,7 @@ LOG_FILE="$STATE_DIR/openconnect.log"
 CHROME_PROFILE="$DATA_DIR/chrome"
 
 SELF="$(readlink -f "$0")"
-GET_DSID="$(dirname "$SELF")/../libexec/um-vpn/get-dsid.py"
+LOGIN_HELPER="$(dirname "$SELF")/../libexec/um-vpn/browser-login.py"
 
 die() { printf 'um-vpn: %s\n' "$*" >&2; exit 1; }
 note() { printf '%s\n' "$*" >&2; }
@@ -213,10 +214,10 @@ cmd_credentials() {
 fresh_dsid() {
   local browser user="" pass=""
   local -a cmd
-  [[ -r "$GET_DSID" ]] || die "helper not found: $GET_DSID"
+  [[ -r "$LOGIN_HELPER" ]] || die "helper not found: $LOGIN_HELPER"
   browser="$(find_browser)"
   cmd=(
-    python3 "$GET_DSID"
+    python3 "$LOGIN_HELPER"
     --browser "$browser"
     --profile "$CHROME_PROFILE"
     --url "$SERVER"

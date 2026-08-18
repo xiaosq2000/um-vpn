@@ -44,8 +44,8 @@ ln -s "$PWD/bin/um-vpn" ~/.local/bin/um-vpn
 
 `bin/um-vpn` finds its helper relative to its own resolved path, so the symlink
 is enough — but the two files must move together. No Python packages are needed;
-`libexec/um-vpn/get-dsid.py` is standard library only (Ubuntu 26.04 is PEP-668
-managed and this was not worth a virtualenv).
+`libexec/um-vpn/browser-login.py` is standard library only (Ubuntu 26.04 is
+PEP-668 managed and this was not worth a virtualenv).
 
 ### Uninstall
 
@@ -117,9 +117,9 @@ pre-commit run --all-files  # on demand
 It runs shellcheck, `ruff check` and `ruff format`, prettier over the Markdown,
 the `.editorconfig` rules, and a guard that refuses to commit anything
 containing a DSID value. `bin/um-vpn` follows the Google Shell Style Guide
-(2-space indent, 80 columns); `get-dsid.py` follows PEP 8; the docs are wrapped
-at 80 too. `.editorconfig`, `ruff.toml` and `.prettierrc.yaml` are the source of
-truth.
+(2-space indent, 80 columns); `browser-login.py` follows PEP 8; the docs are
+wrapped at 80 too. `.editorconfig`, `ruff.toml` and `.prettierrc.yaml` are the
+source of truth.
 
 ## Usage
 
@@ -143,7 +143,7 @@ reliably reaches the on-disk cookie database, and what does reach disk is
 AES-encrypted. Scraping `Cookies` files is therefore both fragile and encrypted
 for nothing.
 
-Instead, `get-dsid.py`:
+Instead, `browser-login.py`:
 
 1. Launches Chrome on a **dedicated profile** (`~/.local/share/um-vpn/chrome`)
    with `--remote-debugging-port=0`, and reads the port Chrome publishes in that
@@ -175,8 +175,9 @@ um-vpn credentials clear  # forget them again
 ```
 
 Both land in the login keyring (libsecret, under `service=um-vpn`), which GNOME
-unlocks with your desktop session. From then on `get-dsid.py` fills the sign-in
-form and submits it, so even a full login is one Duo tap and nothing typed.
+unlocks with your desktop session. From then on `browser-login.py` fills the
+sign-in form and submits it, so even a full login is one Duo tap and nothing
+typed.
 
 | Guard                                                                                                                                  | Why                                                                                                                                     |
 | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -193,7 +194,7 @@ and you type. This is a convenience, never a dependency.
 | Path                                    | Contents                                |
 | --------------------------------------- | --------------------------------------- |
 | `bin/um-vpn`                            | The toggle                              |
-| `libexec/um-vpn/get-dsid.py`            | Browser login + DevTools cookie harvest |
+| `libexec/um-vpn/browser-login.py`       | Browser login + DevTools cookie harvest |
 | `~/.local/state/um-vpn/dsid`            | Cached DSID, mode 600                   |
 | `~/.local/state/um-vpn/openconnect.pid` | Tunnel PID (written by root)            |
 | `~/.local/state/um-vpn/openconnect.log` | Timestamped openconnect output          |
@@ -212,8 +213,8 @@ and you type. This is a convenience, never a dependency.
   signed in". That is the price of silent reconnects. Delete the profile
   directory — or run `um-vpn uninstall` — to revoke it.
 - The UMPASS password, when saved, is in the login keyring rather than any file
-  in this repo or under `~/.local`. It is handed to `get-dsid.py` on stdin, and
-  from there straight into a DevTools `Runtime.evaluate` on a page under
+  in this repo or under `~/.local`. It is handed to `browser-login.py` on stdin,
+  and from there straight into a DevTools `Runtime.evaluate` on a page under
   `UM_VPN_LOGIN_DOMAIN` — never into argv, the environment, or a log line.
   `um-vpn credentials clear` removes it.
 - The sign-in form is filled at most once per login. That is a lockout guard,
