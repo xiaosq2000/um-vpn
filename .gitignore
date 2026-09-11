@@ -9,6 +9,3 @@ __pycache__/
 *.py[co]
 
 CLAUDE.local.md
-
-# neovim plugin (https://github.com/atiladefreitas/dooing)
-dooing.json

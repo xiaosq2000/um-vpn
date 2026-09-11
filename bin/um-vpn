@@ -9,6 +9,8 @@
 #   um-vpn credentials  save the UMPASS ID + password for the sign-in form
 #   um-vpn uninstall    remove the command, the cached cookie and the profile
 #
+# Aliases: up/connect, down/disconnect, relogin, creds.
+#
 # The portal federates to ADFS/SAML, so openconnect cannot log in by itself.
 # browser-login.py opens a Chrome window for UMPASS + Duo and lifts the DSID
 # session cookie out of it over the DevTools protocol -- no DevTools panel, no
