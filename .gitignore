@@ -1,11 +1,14 @@
-# Runtime state lives under XDG dirs, never in the tree. These entries are a
-# guard against a stray copy being staged -- the DSID cookie is a live session.
-cookie
-tunnel.pid
-*.log
-chrome/
-
+# Python and uv.
 __pycache__/
 *.py[co]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
+
+# um-vpn keeps its Chrome profile under XDG_DATA_HOME, never in the tree;
+# this guards against a copy of it being staged.
+chrome/
 
 CLAUDE.local.md

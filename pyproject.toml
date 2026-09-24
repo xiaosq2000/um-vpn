@@ -1,0 +1,35 @@
+[project]
+name = "um-vpn"
+version = "2.0.0"
+description = "University of Macau SSL VPN on Linux: browser login, NetworkManager tunnel"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+um-vpn = "um_vpn:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["um_vpn"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# PEP 8: 4-space indent, 79 columns.
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
+# E,F are ruff's defaults; I keeps import order stable, B catches the easy
+# runtime traps, UP keeps the syntax modern.
+select = ["E", "F", "I", "B", "UP"]
