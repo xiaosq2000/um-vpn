@@ -41,7 +41,8 @@ not a snap, and Python 3.10 or later, which Ubuntu already has. With
 | `um-vpn status` | Show whether the tunnel is up, and its address             |
 | `um-vpn forget` | Delete the NetworkManager connection and the login profile |
 
-GNOME's quick settings show the tunnel under VPN, and can disconnect it.
+GNOME's quick settings show the tunnel as **University of Macau** under VPN, and
+can disconnect it.
 
 The first time, a Chrome window opens on the portal. Sign in with UMPASS, then:
 

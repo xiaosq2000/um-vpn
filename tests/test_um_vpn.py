@@ -241,13 +241,13 @@ def reply(out="", err="", code=0):
     sys.exit(code)
 
 
-missing = ("", "Error: unknown connection 'um-vpn'.\\n", 10)
+missing = ("", "Error: unknown connection 'University of Macau'.\\n", 10)
 if "--active" in args:
-    ours = "um-vpn:activated\\n" if state["active"] else ""
+    ours = "University of Macau:activated\\n" if state["active"] else ""
     reply("Wired connection 1:activated\\n" + ours)
 if "add" in args:
     state["exists"] = True
-    reply("Connection 'um-vpn' (1234) successfully added.\\n")
+    reply("Connection 'University of Macau' (1234) successfully added.\\n")
 if "up" in args:
     if state["fail_up"]:
         failed = "Error: Connection activation failed: Unknown reason\\n"
@@ -259,16 +259,16 @@ if "down" in args:
     if not state["active"]:
         reply(*missing)
     state["active"] = False
-    reply("Connection 'um-vpn' successfully deactivated\\n")
+    reply("Connection 'University of Macau' successfully deactivated\\n")
 if "delete" in args:
     if not state["exists"]:
         reply(*missing)
     state.update(exists=False, active=False)
-    reply("Connection 'um-vpn' (1234) successfully deleted.\\n")
+    reply("Connection 'University of Macau' (1234) successfully deleted.\\n")
 if "IP4.ADDRESS" in args:
     reply("192.0.2.10/32 | 10.0.0.1/8\\n" if state["active"] else "")
 if "connection.id" in args:
-    reply("um-vpn\\n") if state["exists"] else reply(*missing)
+    reply("University of Macau\\n") if state["exists"] else reply(*missing)
 reply("", "fake nmcli: unexpected call\\n", 2)
 """
 
@@ -342,6 +342,11 @@ def test_on_creates_the_connection_and_pipes_in_the_cookie(nm, login, capsys):
     assert um_vpn.main(["on"]) == 0
 
     [add] = nm.called("add")
+    # um-vpn finds its connection by name, so a new name would leave every
+    # existing connection behind, still listed in GNOME.
+    assert add["argv"][add["argv"].index("con-name") + 1] == (
+        "University of Macau"
+    )
     assert add["argv"][add["argv"].index("vpn.data") + 1] == (
         "protocol=nc, gateway=sslvpn.um.edu.mo, "
         "cookie-flags=2, gateway-flags=2, gwcert-flags=2"
