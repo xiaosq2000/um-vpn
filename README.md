@@ -1,10 +1,10 @@
 # um-vpn
 
-Connect to the University of Macau SSL VPN from a Linux desktop with one
-command:
+Connect to the University of Macau SSL VPN from a Linux desktop:
 
 ```bash
-um-vpn          # connect if disconnected, disconnect if connected
+um-vpn on       # sign in through Chrome and connect
+um-vpn off      # disconnect
 ```
 
 The UM portal signs you in through ADFS and Duo, which no VPN client on Linux
@@ -35,7 +35,7 @@ not a snap, and Python 3.10 or later, which Ubuntu already has. With
 
 | Command         | Effect                                                     |
 | --------------- | ---------------------------------------------------------- |
-| `um-vpn`        | Connect if disconnected, disconnect if connected           |
+| `um-vpn`        | Show help                                                  |
 | `um-vpn on`     | Sign in through Chrome and connect                         |
 | `um-vpn off`    | Disconnect, which also ends your portal session            |
 | `um-vpn status` | Show whether the tunnel is up, and its address             |
@@ -64,13 +64,13 @@ Nothing needs setting for UM. Two environment variables change the defaults:
 ## Troubleshooting
 
 - **"Chrome is already running on um-vpn's profile"**: a login window is still
-  open. Close it and run `um-vpn` again.
+  open. Close it and run `um-vpn on` again.
 - **"NetworkManager could not connect"**: um-vpn prints OpenConnect's own
   explanation below the error. "Cookie was rejected by server" right after a
-  login usually means the session was logged out in another window; run `um-vpn`
-  again.
+  login usually means the session was logged out in another window; run
+  `um-vpn on` again.
 - **A "VPN authentication" dialog from GNOME**: that is NetworkManager's own
-  login, which cannot sign in to UM. Cancel it and use `um-vpn`.
+  login, which cannot sign in to UM. Cancel it and use `um-vpn on`.
 - **"…is a snap"**: snap confinement keeps Chromium out of the login profile in
   `~/.local/share`. Install Google Chrome's `.deb`.
 - **Everything fails after a gateway upgrade**: ICTO may have switched off the
@@ -83,7 +83,8 @@ Nothing needs setting for UM. Two environment variables change the defaults:
   which Firefox does not speak.
 - It needs a desktop session. Over SSH there is no window to sign in with, and
   the error only says the login window closed.
-- NetworkManager disconnects VPNs on suspend. Run `um-vpn` again after resume.
+- NetworkManager disconnects VPNs on suspend. Run `um-vpn on` again after
+  resume.
 
 ## Security
 

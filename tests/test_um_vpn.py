@@ -382,13 +382,16 @@ def test_a_failed_connect_quotes_openconnect(nm, login, capsys):
     assert "Cookie was rejected by server" in err
 
 
-def test_bare_um_vpn_toggles(nm, login):
-    nm.set(exists=True)
+def test_bare_um_vpn_shows_help_and_touches_nothing(nm, login, capsys):
+    nm.set(exists=True, active=True)
     assert um_vpn.main([]) == 0
-    assert nm.state["active"]
-    assert um_vpn.main([]) == 0
-    assert not nm.state["active"]
-    assert len(login) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("usage: um-vpn")
+    for command in ("on", "off", "status", "forget"):
+        assert command in out
+    # Running it to see what it does must not cost a Duo push or the tunnel.
+    assert nm.calls == []
+    assert login == []
 
 
 def test_off_when_disconnected_changes_nothing(nm, capsys):

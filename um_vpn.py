@@ -426,13 +426,6 @@ def cmd_off():
     note("Disconnected.")
 
 
-def cmd_toggle():
-    if connection_state() is None:
-        cmd_on()
-    else:
-        cmd_off()
-
-
 def cmd_forget():
     profile = profile_dir()
     if profile_in_use(profile):
@@ -453,7 +446,6 @@ def cmd_forget():
 
 
 COMMANDS = {
-    None: cmd_toggle,
     "on": cmd_on,
     "off": cmd_off,
     "status": cmd_status,
@@ -464,9 +456,8 @@ COMMANDS = {
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="um-vpn",
-        usage="%(prog)s [-h] [command]",
-        description="Connect to the University of Macau SSL VPN. With no "
-        "command, connect when disconnected and disconnect when connected.",
+        usage="%(prog)s [-h] command",
+        description="Connect to the University of Macau SSL VPN.",
         epilog="Environment: UM_VPN_PORTAL_URL (default "
         f"{DEFAULT_PORTAL}), UM_VPN_BROWSER (a Chrome or Chromium to use).",
     )
@@ -479,6 +470,9 @@ def main(argv=None):
         help="delete the NetworkManager connection and the login profile",
     )
     args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
     try:
         COMMANDS[args.command]()
     except Error as e:
