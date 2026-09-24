@@ -17,11 +17,13 @@ machine is linked, not copied.
 
 ## Verifying changes
 
-There is no build and no test suite. `pre-commit run --all-files` is the entire
-harness — see `.pre-commit-config.yaml` for what it covers. It is clean on
-`main`, so any output is something you introduced.
+There is no build. `make check` is the entire harness: pre-commit (see
+`.pre-commit-config.yaml` for what it covers), then `make test`. Both are clean
+on `main`, so any output is something you introduced.
 
-`um-vpn status` is the only safe runtime check. Do not run
+`make test` drives the real login helper and a headless Chrome against a
+stand-in portal on `127.0.0.1` — no Duo, no network, no sudo — so run it freely.
+Beyond that, `um-vpn status` is the only safe runtime check. Do not run
 `um-vpn on|off|toggle|renew` to test a change — each connect costs a real Duo
 push and drops or raises the user's actual network. Ask first.
 

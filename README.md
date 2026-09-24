@@ -339,7 +339,8 @@ make link
 | `make install`   | Copy both files into `PREFIX` (default `~/.local`), write a manifest |
 | `make link`      | Symlink `bin/um-vpn` there instead, so edits to the clone are live   |
 | `make uninstall` | Remove the installed files, leaving the cookie and profile alone     |
-| `make check`     | Run the pre-commit harness                                           |
+| `make test`      | Run the tests: headless Chrome against a stand-in portal, no Duo     |
+| `make check`     | Run pre-commit, then the tests                                       |
 
 `make install` copies `bin/um-vpn` into `~/.local/bin` and the login helper into
 `~/.local/libexec/um-vpn`, then records both paths in a manifest so
@@ -353,16 +354,23 @@ owns removal. Switching between `make install` and `make link` in either
 direction clears the other's files first, so neither can strand a stale copy of
 the helper.
 
-There is no build and no test suite, so [pre-commit](https://pre-commit.com) is
-the whole check:
+There is no build. `make check` is the whole check:
+[pre-commit](https://pre-commit.com), then the tests.
 
 ```bash
-pre-commit install          # once per clone, installs the git hook
-pre-commit run --all-files  # on demand, same as `make check`
+pre-commit install  # once per clone, installs the git hook
+make check          # pre-commit over every file, then the tests
 ```
 
-It runs shellcheck, `ruff check` and `ruff format`, prettier over the Markdown,
-the `.editorconfig` rules, and a guard that refuses to commit anything
+The tests in `tests/` drive the real login helper and a headless Chrome against
+a stand-in portal on `127.0.0.1` that sets a `DSID`. They check that the helper
+prints exactly that cookie, ignores one set for another domain, and leaves no
+Chrome running. There is no Duo, no network and no sudo involved, so `make test`
+is safe to run on any change. It skips itself when no Chromium-family browser is
+installed.
+
+pre-commit runs shellcheck, `ruff check` and `ruff format`, prettier over the
+Markdown, the `.editorconfig` rules, and a guard that refuses to commit anything
 containing a DSID value. `bin/um-vpn` follows the Google Shell Style Guide
 (2-space indent, 80 columns); `browser-login.py` follows PEP 8; the docs are
 wrapped at 80 too. `.editorconfig`, `ruff.toml` and `.prettierrc.yaml` are the

@@ -5,7 +5,8 @@
 #   make install PREFIX=/usr   system-wide (needs root)
 #   make link                  development install: edits take effect at once
 #   make uninstall             remove whatever the last install created
-#   make check                 run the pre-commit harness
+#   make test                  run the tests (headless Chrome, no Duo)
+#   make check                 run pre-commit, then the tests
 #
 # Packagers: PREFIX and DESTDIR behave as usual. A staged build (DESTDIR set)
 # writes no manifest, because there the package manager owns removal rather
@@ -27,13 +28,14 @@ DATA_DIR := $(XDG_DATA_HOME)/um-vpn
 MANIFEST := $(DATA_DIR)/manifest
 
 .DEFAULT_GOAL := help
-.PHONY: help install link uninstall remove-installed check
+.PHONY: help install link uninstall remove-installed test check
 
 help:
 	@echo 'make install     copy um-vpn into $(PREFIX)'
 	@echo 'make link        symlink it there instead, for development'
 	@echo 'make uninstall   remove whatever the last install created'
-	@echo 'make check       run the pre-commit harness'
+	@echo 'make test        run the tests (headless Chrome, no Duo)'
+	@echo 'make check       run pre-commit, then the tests'
 	@echo
 	@echo 'PREFIX and DESTDIR override where the files land.'
 
@@ -95,5 +97,12 @@ remove-installed:
 		rm -f '$(MANIFEST)'; \
 	fi
 
+# The tests drive a real headless Chrome against a stand-in portal on
+# 127.0.0.1, with no Duo, no network and no sudo, so they are safe to run on
+# any change. Kept out of the pre-commit hook: they take ~20 seconds.
+test:
+	python3 -m unittest discover -s tests -v
+
 check:
 	pre-commit run --all-files
+	$(MAKE) --no-print-directory test
