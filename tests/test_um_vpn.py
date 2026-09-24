@@ -265,8 +265,8 @@ if "delete" in args:
         reply(*missing)
     state.update(exists=False, active=False)
     reply("Connection 'um-vpn' (1234) successfully deleted.\\n")
-if "GENERAL.IP-IFACE,IP4.ADDRESS" in args:
-    reply("vpn0\\n192.0.2.10/32 | 10.0.0.1/8\\n" if state["active"] else "")
+if "IP4.ADDRESS" in args:
+    reply("192.0.2.10/32 | 10.0.0.1/8\\n" if state["active"] else "")
 if "connection.id" in args:
     reply("um-vpn\\n") if state["exists"] else reply(*missing)
 reply("", "fake nmcli: unexpected call\\n", 2)
@@ -357,7 +357,7 @@ def test_on_creates_the_connection_and_pipes_in_the_cookie(nm, login, capsys):
     )
     # The cookie is a live session: ps shows every argv to every user.
     assert not any("fake-dsid" in " ".join(c["argv"]) for c in nm.calls)
-    assert "connected, 192.0.2.10/32 on vpn0" in capsys.readouterr().out
+    assert capsys.readouterr().out == "um-vpn: connected, 192.0.2.10/32\n"
 
 
 def test_on_reuses_an_existing_connection(nm, login):

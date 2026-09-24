@@ -390,14 +390,12 @@ def cmd_status():
     if state != "activated":
         print(f"um-vpn: {state}")
         return
-    show = nmcli(
-        "-g", "GENERAL.IP-IFACE,IP4.ADDRESS", "connection", "show", CONNECTION
-    )
-    # One field per line; a field with several values joins them with " | ".
-    iface, address = (show.stdout.splitlines() + ["", ""])[:2]
-    address = address.split("|")[0].strip()
-    where = f", {address} on {iface.strip()}" if address else ""
-    print(f"um-vpn: connected{where}")
+    # Only the address: for a VPN, NetworkManager's GENERAL.IP-IFACE is the
+    # Wi-Fi or Ethernet device underneath, not the tunnel. Several addresses
+    # come back joined by " | ".
+    show = nmcli("-g", "IP4.ADDRESS", "connection", "show", CONNECTION)
+    address = show.stdout.split("|")[0].strip()
+    print(f"um-vpn: connected, {address}" if address else "um-vpn: connected")
 
 
 def cmd_on():
