@@ -23,7 +23,9 @@ import time
 import urllib.parse
 from pathlib import Path
 
-CONNECTION = "um-vpn"  # the NetworkManager connection's name
+# The NetworkManager connection's name: GNOME shows it under VPN, and um-vpn
+# finds the connection by it.
+CONNECTION = "University of Macau"
 DEFAULT_PORTAL = "https://sslvpn.um.edu.mo"
 # Chromium-family only: the login is read over the Chrome DevTools Protocol.
 BROWSERS = (
