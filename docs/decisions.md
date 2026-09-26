@@ -2,6 +2,45 @@
 
 Why um-vpn is built the way it is, and what was tried instead. Newest first.
 
+## 2026-09: ESP off, and a keepalive
+
+The tunnel used to stop working about five minutes after every connect, then
+recover by itself about sixteen minutes later. um-vpn now turns ESP off and
+keeps a small process running that sends one DNS query through the tunnel every
+minute. Measured on 2026-09-26 with openconnect 9.12 and
+network-manager-openconnect 1.2.10:
+
+- While ESP carries the traffic, the TLS connection to the gateway carries
+  nothing. About 300 seconds after the connect, the gateway stopped answering
+  ESP, and by then the TLS connection was dead too. Data sent on it was never
+  acknowledged, and no FIN or RST ever arrived. Of the sessions logged since the
+  rewrite that lasted more than six minutes, seven lost ESP between 5:00 and
+  5:27 after the connect, and four lost it sooner.
+- openconnect sends no keepalive on the TLS connection of the `nc` protocol.
+  That code sits behind `#if 0 /* Not understood for Juniper yet */`, still so
+  after 9.21, and openconnect never turns on TCP keepalive. So it moved the
+  traffic onto the dead connection, and nothing noticed until the kernel stopped
+  retransmitting (`tcp_retries2`), about 1000 seconds later. openconnect then
+  reconnected with the same cookie. The gateway's session had not expired, and
+  the gateway never sent the idle timeout message that openconnect reports.
+- With ESP off and one query a minute, the tunnel stayed up through a 20-minute
+  test. For the first ten minutes it carried nothing but the queries, and the
+  TLS connection never retransmitted. It then carried a download of about 840 MB
+  at about 28 Mbit/s.
+- Either change alone is not enough. With ESP on, the queries travel over ESP
+  and the TLS connection still sits idle. With ESP off and no queries, the
+  tunnel dies after any five minutes without traffic.
+- `um-vpn on` starts the process as `um-vpn keepalive`, detached from the
+  terminal. It asks the first DNS server that the gateway pushed for the
+  portal's own address, and exits once NetworkManager no longer lists the
+  tunnel. A lock file keeps it to one process.
+- Everything now crosses one TCP connection, which handles packet loss worse
+  than ESP does.
+- Lowering `tcp_retries2` would shorten the outage, but it needs root and
+  changes every TCP connection on the machine.
+- Where the five-minute limit sits, in the home network or in front of the
+  gateway, is unknown. All of the measured sessions ran on the same home Wi-Fi.
+
 ## 2026-09: one Python file on NetworkManager
 
 The first version was a bash script that ran `sudo openconnect` itself, plus a

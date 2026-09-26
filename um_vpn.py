@@ -17,6 +17,8 @@ import pwd
 import select
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import time
@@ -35,6 +37,8 @@ BROWSERS = (
     "chromium-browser",
 )
 LOGIN_TIMEOUT = 300  # seconds to get through UMPASS and Duo
+KEEPALIVE_INTERVAL = 60  # seconds; an idle tunnel dies at about 300
+DNS_PORT = 53
 
 
 class Error(Exception):
@@ -305,10 +309,12 @@ def create_connection(url):
         # it without a password.
         "connection.permissions",
         f"user:{user}",
-        # flags=2 is "not saved": NetworkManager asks for these on every
-        # connect and never writes them to disk.
+        # disable_udp turns ESP off, so everything crosses the TLS
+        # connection that the keepalive holds open. flags=2 is "not saved":
+        # NetworkManager asks for these on every connect and never writes
+        # them to disk.
         "vpn.data",
-        f"protocol=nc, gateway={host}, "
+        f"protocol=nc, gateway={host}, disable_udp=yes, "
         "cookie-flags=2, gateway-flags=2, gwcert-flags=2",
     )
     if result.returncode != 0:
@@ -318,6 +324,17 @@ def create_connection(url):
             "Is network-manager-openconnect installed?"
         )
     note(f"Created the NetworkManager connection '{CONNECTION}'.")
+
+
+def disable_esp():
+    """Turn ESP off on a connection made before um-vpn did so itself."""
+    result = nmcli(
+        "connection", "modify", CONNECTION, "+vpn.data", "disable_udp=yes"
+    )
+    if result.returncode != 0:
+        raise Error(
+            f"could not update the connection: {first_line(result.stderr)}"
+        )
 
 
 def connect(dsid, url):
@@ -381,6 +398,62 @@ def openconnect_log(since):
     return "".join(f"\n  openconnect: {line}" for line in lines)
 
 
+# --- keepalive -------------------------------------------------------------
+
+
+def tunnel_dns():
+    """The DNS servers the gateway pushed, none once the tunnel is down.
+
+    They are inside the tunnel, so a query to one has to cross it.
+    """
+    show = nmcli("-g", "IP4.DNS", "connection", "show", CONNECTION)
+    return show.stdout.replace("|", " ").split()
+
+
+def dns_query(name):
+    """A DNS query for name's address, as it goes on the wire."""
+    header = os.urandom(2) + struct.pack(">HHHHH", 0x0100, 1, 0, 0, 0)
+    labels = b"".join(
+        bytes([len(label)]) + label for label in name.encode().split(b".")
+    )
+    return header + labels + b"\0" + struct.pack(">HH", 1, 1)
+
+
+def poke_tunnel(server, name):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(5)
+        try:
+            sock.sendto(dns_query(name), (server, DNS_PORT))
+            sock.recv(512)  # only so the answer has somewhere to land
+        except OSError:
+            pass  # the query crossed the tunnel, answered or not
+
+
+def keepalive_lock():
+    """An exclusive lock on a file, or None when another process has it."""
+    path = profile_dir().parent / "keepalive.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = open(path, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        return None
+    return lock
+
+
+def start_keepalive():
+    # Detached, so it outlives this command and the terminal's Ctrl-C.
+    return subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "keepalive"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd="/",
+        start_new_session=True,
+    )
+
+
 # --- commands --------------------------------------------------------------
 
 
@@ -407,12 +480,15 @@ def cmd_on():
     url = portal_url()
     browser = find_browser()
     # Before the login, so a missing plugin surfaces before a Duo push.
-    if not connection_exists():
+    if connection_exists():
+        disable_esp()
+    else:
         create_connection(url)
     note("Opening the portal in Chrome: sign in with UMPASS and approve Duo.")
     note("The window closes by itself once you are in.")
     dsid = browser_login(browser, profile_dir(), url)
     connect(dsid, url)
+    start_keepalive()
     cmd_status()
 
 
@@ -447,11 +523,31 @@ def cmd_forget():
     note(f"Removed {' and '.join(removed)}." if removed else "Nothing to do.")
 
 
+def cmd_keepalive():
+    """Query the tunnel's DNS every minute until the tunnel is down.
+
+    'on' starts this in the background. openconnect sends nothing on the
+    TLS connection of an idle tunnel, and something between here and the
+    gateway drops it after about five minutes without a word.
+    """
+    name = urllib.parse.urlsplit(portal_url()).hostname
+    lock = keepalive_lock()
+    if lock is None:
+        return  # one is already running
+    with lock:
+        while connection_state() is not None:
+            servers = tunnel_dns()
+            if servers:
+                poke_tunnel(servers[0], name)
+            time.sleep(KEEPALIVE_INTERVAL)
+
+
 COMMANDS = {
     "on": cmd_on,
     "off": cmd_off,
     "status": cmd_status,
     "forget": cmd_forget,
+    "keepalive": cmd_keepalive,
 }
 
 
@@ -471,6 +567,8 @@ def main(argv=None):
         "forget",
         help="delete the NetworkManager connection and the login profile",
     )
+    # Started by 'on'. Without a help= it stays out of the help.
+    commands.add_parser("keepalive")
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()

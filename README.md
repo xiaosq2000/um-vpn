@@ -44,6 +44,11 @@ not a snap, and Python 3.10 or later, which Ubuntu already has. With
 GNOME's quick settings show the tunnel as **University of Macau** under VPN, and
 can disconnect it.
 
+While the tunnel is up, `um-vpn on` leaves a small `um-vpn keepalive` process
+running. It sends one DNS query through the tunnel each minute, because the
+tunnel stops working after about five minutes without traffic, and it exits by
+itself once the tunnel is down.
+
 The first time, a Chrome window opens on the portal. Sign in with UMPASS, then:
 
 - tick **Keep me signed in** on the ADFS page, and
