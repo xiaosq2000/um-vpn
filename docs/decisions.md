@@ -2,6 +2,46 @@
 
 Why um-vpn is built the way it is, and what was tried instead. Newest first.
 
+## 2026-09: the UMPASS sign-in from the keyring
+
+`um-vpn remember` stores the UMPASS ID and password in the login keyring, and
+`um-vpn on` types them into UM's ADFS form and submits it.
+
+- UM's ADFS page hides **Keep me signed in**
+  (`<div id="kmsiArea" style="display:none">`, checked on 2026-09-26), so the
+  ADFS sign-in lasts only as long as the browser runs. um-vpn starts a new
+  Chrome for every connect, so without a stored sign-in, every connect asks for
+  the ID and password.
+- UMPASS locks the account, which also holds email, after a few wrong passwords.
+  So the password goes to the page in one DevTools call per connect, whatever
+  that call returns. A form that already shows an error is never filled, and a
+  password that ADFS refuses is deleted from the keyring, so that no later
+  connect tries it again.
+- The first new page after the submit decides. If it is the sign-in form again,
+  ADFS refused the password. A later return to the form, for example after a
+  failed Duo prompt, is not blamed on the stored password.
+- The password goes only into ADFS's own form (`#loginForm`, `#userNameInput`,
+  `#passwordInput`), on a page with the portal's scheme and a host under the
+  portal's host minus its first label (`um.edu.mo`). A portal at an IP address,
+  or one that leaves a single label, gets no autofill.
+- The script runs in an isolated world, whose built-ins the page cannot replace.
+  In the same call as the fill, it compares `location.protocol` and
+  `location.hostname` with the exact host um-vpn expects, using only `===`. The
+  check holds even if a reused context id sends the call to the page's own
+  world.
+- The script clicks the **Sign in** button instead of submitting the form, so
+  UM's own handler runs. That handler adds `@um.edu.mo` to a bare ID.
+- The ID and password travel as arguments of a DevTools call over the private
+  pipe, never in argv, the environment or the script's source.
+- `secret-tool`, from `libsecret-tools`, stores and reads the items. Ubuntu does
+  not install it by default. `gdbus` would need the password on its command line
+  to store it, and a D-Bus client written with the standard library would take
+  several hundred lines.
+- The items (`service=um-vpn`, `field=username` or `field=password`) are the
+  ones the bash version used, so items it stored still work.
+- Chrome's password manager fills the form but does not submit it. A `gpg` file
+  or `pass` only trades one unlock prompt for another.
+
 ## 2026-09: ESP off, and a keepalive
 
 The tunnel used to stop working about five minutes after every connect, then
@@ -63,13 +103,8 @@ The rewrite removes those problems instead of documenting them.
     openconnect's own lines from the journal.
 - **No cookie cache.** Disconnecting makes openconnect log the session out, and
   NetworkManager disconnects on suspend too, so a saved cookie would almost
-  never work again. Every connect signs in afresh; ADFS's "keep me signed in"
-  and Duo's "remember this device" make that a window that closes by itself.
-  Nothing secret is stored on disk.
-- **No password autofill.** The bash version typed the UMPASS password from the
-  desktop keyring into the ADFS form. That was the riskiest code in the project,
-  and it only helped once the ADFS sign-in had expired. Chrome's own password
-  manager, in the login profile, fills the form and leaves one click.
+  never work again. Every connect signs in afresh, and the cookie is never
+  written to disk.
 - **DevTools over a pipe, not a port.** With `--remote-debugging-pipe`, only
   um-vpn can talk to Chrome. The port it replaces was open to every local
   process while the login window was up, and it needed a hand-written WebSocket
@@ -83,14 +118,6 @@ The rewrite removes those problems instead of documenting them.
 - **Tests instead of warnings.** Headless Chrome against a stand-in portal
   checks the login. A fake nmcli checks what reaches NetworkManager, and that
   the cookie never lands on a command line.
-
-## 2026-08: credentials in the keyring (removed 2026-09)
-
-The bash version could store the UMPASS ID and password in the login keyring and
-type them into the ADFS form over DevTools, at most once per login, because
-UMPASS locks the account after a few bad passwords. It was chosen over Chrome's
-password manager, which fills the form but does not submit it, and over a `gpg`
-file or `pass`, which only trade one unlock prompt for another.
 
 ## 2026-07, re-checked 2026-08: how to authenticate at all
 

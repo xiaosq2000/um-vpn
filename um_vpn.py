@@ -4,13 +4,17 @@
 The portal hands its login to ADFS and Duo, which openconnect cannot drive
 by itself. So um-vpn opens Chrome on the portal, reads the DSID session
 cookie over the DevTools protocol once you are signed in, and passes it to
-NetworkManager, whose openconnect plugin runs the tunnel without sudo.
+NetworkManager, whose openconnect plugin runs the tunnel without sudo. With
+your UMPASS ID and password in the login keyring, it also fills in the
+sign-in form, which leaves only Duo to you.
 
 Standard library only: installing is copying this file onto PATH.
 """
 
 import argparse
 import fcntl
+import getpass
+import ipaddress
 import json
 import os
 import pwd
@@ -37,8 +41,12 @@ BROWSERS = (
     "chromium-browser",
 )
 LOGIN_TIMEOUT = 300  # seconds to get through UMPASS and Duo
+PAGE_TIMEOUT = 5  # seconds; a tab that is closing may never answer
 KEEPALIVE_INTERVAL = 60  # seconds; an idle tunnel dies at about 300
 DNS_PORT = 53
+# The login keyring items that hold the UMPASS sign-in, one per field, so
+# that `secret-tool lookup` returns one secret and nothing beside it.
+KEYRING = ("service", "um-vpn")
 
 
 class Error(Exception):
@@ -94,6 +102,61 @@ def find_browser():
     raise Error("no Chrome or Chromium found; install Google Chrome")
 
 
+# --- stored sign-in --------------------------------------------------------
+
+
+def secret_tool(*args, stdin=""):
+    """Run secret-tool, or return None when it is not installed.
+
+    stdin is always a pipe: on a terminal, secret-tool would prompt there.
+    """
+    try:
+        return subprocess.run(
+            ["secret-tool", *args], input=stdin.encode(), capture_output=True
+        )
+    except FileNotFoundError:
+        return None
+
+
+def keyring_get(field):
+    """A stored value, or None: no item, no keyring, or no secret-tool."""
+    result = secret_tool("lookup", *KEYRING, "field", field)
+    if result is None or result.returncode != 0 or not result.stdout:
+        return None
+    # Exactly as stored: secret-tool adds a newline only on a terminal, and
+    # a password that comes back changed is a failed UMPASS attempt.
+    try:
+        return result.stdout.decode()
+    except UnicodeDecodeError:
+        return None
+
+
+def keyring_set(field, label, value):
+    result = secret_tool(
+        "store", f"--label={label}", *KEYRING, "field", field, stdin=value
+    )
+    if result is None:
+        raise Error("secret-tool not found; install libsecret-tools")
+    if result.returncode != 0:
+        details = first_line(result.stderr.decode(errors="replace"))
+        raise Error(f"could not write to the keyring: {details}")
+
+
+def keyring_clear():
+    """Delete the stored sign-in; True when there was one to delete."""
+    result = secret_tool("clear", *KEYRING)
+    return result is not None and result.returncode == 0
+
+
+def stored_sign_in():
+    """The stored (ID, password), or None."""
+    user = keyring_get("username")
+    # Only once there is an ID: each lookup can raise the keyring's unlock
+    # prompt.
+    password = keyring_get("password") if user else None
+    return (user, password) if password else None
+
+
 # --- browser login ---------------------------------------------------------
 
 
@@ -111,9 +174,13 @@ class DevTools:
         self.pending = b""
         self.last_id = 0
 
-    def call(self, method, timeout=30, **params):
+    def call(self, method, timeout=30, session=None, **params):
         self.last_id += 1
         message = {"id": self.last_id, "method": method, "params": params}
+        # A call to a tab goes down the same pipe, tagged with the session
+        # that um-vpn opened on the tab.
+        if session:
+            message["sessionId"] = session
         try:
             os.write(self.to_chrome, json.dumps(message).encode() + b"\0")
         except BrokenPipeError:
@@ -192,8 +259,8 @@ def launch_chrome(browser, profile, url):
 
 
 def close_chrome(chrome, devtools):
-    # Browser.close is a clean shutdown, which is what saves ADFS's "keep me
-    # signed in" cookie to the profile, so that the next login can be silent.
+    # Browser.close is a clean shutdown, which is what saves Duo's
+    # remembered device to the profile, so that the next login can skip Duo.
     try:
         devtools.call("Browser.close", timeout=5)
     except (BrowserClosed, Error):
@@ -241,16 +308,246 @@ def find_dsid(devtools, domain):
     return None
 
 
-def browser_login(browser, profile, url, timeout=LOGIN_TIMEOUT):
-    """Open the portal in Chrome and return the DSID once the user is in."""
+def login_domain(host):
+    """Where the sign-in may be typed: the portal's host minus one label.
+
+    sslvpn.um.edu.mo gives um.edu.mo, which holds UM's ADFS. None for an IP
+    address, and for a single label, which would take in a whole TLD.
+    """
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        domain = host.partition(".")[2]
+        return domain if "." in domain else None
+    return None
+
+
+# Runs in the tab, in a world of um-vpn's own that the page's scripts cannot
+# reach. Returns [state, page], where page tells one document from the next.
+FILL_SIGN_IN = """\
+function (scheme, host, user, password) {
+    "use strict";
+    // location's fields cannot be redefined and === runs no page code, so
+    // this holds even in the page's own world, where the call can land if
+    // a new renderer process reuses the context id it names.
+    if (location.protocol !== scheme || location.hostname !== host) {
+        return ["elsewhere", 0];
+    }
+    const page = performance.timeOrigin;
+    // Until then, the handler behind the button may be missing.
+    if (document.readyState !== "complete") {
+        return ["loading", page];
+    }
+    const shown = (id) => {
+        const element = document.getElementById(id);
+        return element && element.getClientRects().length ? element : null;
+    };
+    const name = shown("userNameInput");
+    const secret = shown("passwordInput");
+    const button = shown("submitButton");
+    if (!document.getElementById("loginForm") || !name || !secret
+            || !button) {
+        return ["other", page];  // Duo, the portal, or a changed page
+    }
+    const error = document.getElementById("errorText");
+    if (error && error.textContent.trim()) {
+        return ["error", page];
+    }
+    if (typeof password !== "string") {
+        return ["form", page];
+    }
+    name.value = user;
+    secret.value = password;
+    // The button, not form.submit(): its handler is UM's own, which turns
+    // a bare ID into ID@um.edu.mo. A page's handlers run in the page's
+    // world, even for a click from this one.
+    button.click();
+    return ["submitted", page];
+}
+"""
+
+
+def call_in_page(devtools, tab, function, *args):
+    """Call a JavaScript function in a tab; None when it throws.
+
+    It runs in an isolated world, whose built-ins the page cannot replace.
+    The arguments travel as values, never as script text.
+    """
+    session = devtools.call(
+        "Target.attachToTarget",
+        timeout=PAGE_TIMEOUT,
+        targetId=tab,
+        flatten=True,
+    )["sessionId"]
+    try:
+        tree = devtools.call(
+            "Page.getFrameTree", timeout=PAGE_TIMEOUT, session=session
+        )
+        world = devtools.call(
+            "Page.createIsolatedWorld",
+            timeout=PAGE_TIMEOUT,
+            session=session,
+            frameId=tree["frameTree"]["frame"]["id"],
+            # Named, so that a document gets one world however many calls.
+            worldName="um-vpn",
+        )
+        reply = devtools.call(
+            "Runtime.callFunctionOn",
+            timeout=PAGE_TIMEOUT,
+            session=session,
+            functionDeclaration=function,
+            executionContextId=world["executionContextId"],
+            arguments=[{"value": arg} for arg in args],
+            returnByValue=True,
+        )
+    finally:
+        try:
+            devtools.call(
+                "Target.detachFromTarget",
+                timeout=PAGE_TIMEOUT,
+                sessionId=session,
+            )
+        except Error:
+            pass
+    if "exceptionDetails" in reply:
+        return None  # and never shown, in case it quotes an argument
+    return reply.get("result", {}).get("value")
+
+
+class SignIn:
+    """Types the stored UMPASS ID and password into ADFS's form, once.
+
+    UMPASS locks the account after a few wrong passwords, and the account
+    holds email too. So the password goes to the page in one call per
+    login, whatever comes of it; a form that already shows an error is left
+    alone; and a password that UMPASS refuses is forgotten.
+    """
+
+    def __init__(self, devtools, url, user, password):
+        parts = urllib.parse.urlsplit(url)
+        self.devtools = devtools
+        self.scheme = parts.scheme
+        self.domain = login_domain(parts.hostname or "")
+        self.user = user
+        self.password = password
+        self.watching = None  # (tab, page) once the password has gone out
+        self.done = self.domain is None
+
+    def step(self):
+        """Take one more look at the tabs; called at every poll."""
+        if self.done:
+            return
+        try:
+            tabs = self.tabs()
+        except Error:
+            return  # again at the next poll
+        if self.watching:
+            self.watch(tabs)
+        else:
+            self.wait(tabs)
+
+    def tabs(self):
+        """{tab: host} for the tabs whose page may be given the sign-in."""
+        tabs = {}
+        for target in self.devtools.call("Target.getTargets")["targetInfos"]:
+            url = urllib.parse.urlsplit(target["url"])
+            host = url.hostname or ""
+            if (
+                target["type"] == "page"
+                and url.scheme == self.scheme
+                and host_in_domain(host, self.domain)
+            ):
+                tabs[target["targetId"]] = host
+        return tabs
+
+    def ask(self, tab, host, password=None):
+        """The form's [state, page] in a tab; [None, None] when unknown."""
+        try:
+            answer = call_in_page(
+                self.devtools,
+                tab,
+                FILL_SIGN_IN,
+                self.scheme + ":",
+                host,
+                self.user if password else None,
+                password,
+            )
+        except Error:
+            answer = None
+        return answer or [None, None]
+
+    def wait(self, tabs):
+        for tab, host in tabs.items():
+            state, page = self.ask(tab, host)
+            if state == "error":
+                self.stop(
+                    "The sign-in page already shows an error; sign in by hand."
+                )
+                return
+            if state == "form":
+                self.submit(tab, host, page)
+                return
+
+    def submit(self, tab, host, page):
+        # Dropped before the call, so that nothing can send it twice.
+        password, self.password = self.password, None
+        state, sent = self.ask(tab, host, password)
+        if state == "submitted":
+            note("Filled in the stored UMPASS sign-in.")
+            self.watching = (tab, sent)
+        elif state is None:
+            # The call failed, but the form may have gone all the same.
+            self.watching = (tab, page)
+        else:
+            self.stop("Could not fill in the sign-in; sign in by hand.")
+
+    def watch(self, tabs):
+        tab, page = self.watching
+        if tab not in tabs:
+            self.stop()  # closed, or gone to Duo: past the password
+            return
+        state, now = self.ask(tab, tabs[tab])
+        if state in (None, "elsewhere", "loading"):
+            return
+        if now == page:
+            if state == "error":
+                self.refused()
+            return  # still the page that sent the form
+        if state in ("form", "error"):
+            self.refused()  # the sign-in came back
+        else:
+            self.stop()  # Duo, or on to the portal: past the password
+
+    def refused(self):
+        keyring_clear()
+        self.stop(
+            "UMPASS did not accept the stored ID and password, so um-vpn "
+            "has forgotten them.",
+            "Finish in the window, then run 'um-vpn remember'.",
+        )
+
+    def stop(self, *lines):
+        for line in lines:
+            note(line)
+        self.done = True
+
+
+def browser_login(browser, profile, url, timeout=LOGIN_TIMEOUT, sign_in=None):
+    """Open the portal in Chrome and return the DSID once the user is in.
+
+    sign_in, a stored (ID, password), goes into the UMPASS form.
+    """
     domain = urllib.parse.urlsplit(url).hostname
     chrome, devtools = launch_chrome(browser, profile, url)
+    form = SignIn(devtools, url, *sign_in) if sign_in else None
     try:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             dsid = find_dsid(devtools, domain)
             if dsid:
                 return dsid
+            if form:
+                form.step()
             time.sleep(1)
         raise Error(f"no session from {domain} after {timeout}s; gave up")
     except BrowserClosed:
@@ -484,9 +781,19 @@ def cmd_on():
         disable_esp()
     else:
         create_connection(url)
-    note("Opening the portal in Chrome: sign in with UMPASS and approve Duo.")
+    sign_in = stored_sign_in()
+    if sign_in:
+        note(
+            "Opening the portal in Chrome: um-vpn fills in your UMPASS "
+            "sign-in; approve Duo if it asks."
+        )
+    else:
+        note(
+            "Opening the portal in Chrome: sign in with UMPASS and approve "
+            "Duo."
+        )
     note("The window closes by itself once you are in.")
-    dsid = browser_login(browser, profile_dir(), url)
+    dsid = browser_login(browser, profile_dir(), url, sign_in=sign_in)
     connect(dsid, url)
     start_keepalive()
     cmd_status()
@@ -500,8 +807,29 @@ def cmd_off():
     if result.returncode != 0:
         raise Error(f"could not disconnect: {first_line(result.stderr)}")
     # openconnect logs the session out on its way down, so the next connect
-    # is a fresh login: usually a window that closes by itself.
+    # is a fresh login, which um-vpn fills in from the keyring.
     note("Disconnected.")
+
+
+def cmd_remember():
+    if not shutil.which("secret-tool"):
+        raise Error("secret-tool not found; install libsecret-tools")
+    if not sys.stdin.isatty():
+        raise Error("remember reads the password from a terminal")
+    try:
+        user = input("UMPASS ID: ").strip()
+        password = getpass.getpass("UMPASS password: ")
+    except EOFError:
+        raise Error("nothing stored") from None
+    if not user or not password:
+        raise Error("nothing stored: it takes both an ID and a password")
+    # Cleared first, so that a store failing halfway leaves an ID on its
+    # own, which is ignored, and never a new ID with an old password.
+    keyring_clear()
+    keyring_set("username", "um-vpn: UMPASS ID", user)
+    keyring_set("password", "um-vpn: UMPASS password", password)
+    note("Stored in the login keyring.")
+    note("um-vpn on now fills in the UMPASS sign-in; approve Duo if it asks.")
 
 
 def cmd_forget():
@@ -520,7 +848,12 @@ def cmd_forget():
     if profile.exists():
         shutil.rmtree(profile)
         removed.append(f"the login profile {profile}")
-    note(f"Removed {' and '.join(removed)}." if removed else "Nothing to do.")
+    if keyring_clear():
+        removed.append("the stored UMPASS sign-in")
+    for item in removed:
+        note(f"Removed {item}.")
+    if not removed:
+        note("Nothing to do.")
 
 
 def cmd_keepalive():
@@ -546,6 +879,7 @@ COMMANDS = {
     "on": cmd_on,
     "off": cmd_off,
     "status": cmd_status,
+    "remember": cmd_remember,
     "forget": cmd_forget,
     "keepalive": cmd_keepalive,
 }
@@ -564,8 +898,13 @@ def main(argv=None):
     commands.add_parser("off", help="disconnect, ending the portal session")
     commands.add_parser("status", help="show whether the tunnel is up")
     commands.add_parser(
+        "remember",
+        help="store your UMPASS ID and password in the login keyring",
+    )
+    commands.add_parser(
         "forget",
-        help="delete the NetworkManager connection and the login profile",
+        help="delete the NetworkManager connection, the login profile and "
+        "the stored sign-in",
     )
     # Started by 'on'. Without a help= it stays out of the help.
     commands.add_parser("keepalive")
