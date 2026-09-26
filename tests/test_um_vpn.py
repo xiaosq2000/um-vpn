@@ -12,6 +12,7 @@ import os
 import secrets
 import shlex
 import signal
+import socket
 import sys
 import threading
 import time
@@ -265,8 +266,12 @@ if "delete" in args:
         reply(*missing)
     state.update(exists=False, active=False)
     reply("Connection 'University of Macau' (1234) successfully deleted.\\n")
+if "modify" in args:
+    reply()
 if "IP4.ADDRESS" in args:
     reply("192.0.2.10/32 | 10.0.0.1/8\\n" if state["active"] else "")
+if "IP4.DNS" in args:
+    reply("127.0.0.1 | 127.0.0.2\\n" if state["active"] else "")
 if "connection.id" in args:
     reply("University of Macau\\n") if state["exists"] else reply(*missing)
 reply("", "fake nmcli: unexpected call\\n", 2)
@@ -322,6 +327,11 @@ def nm(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.delenv("UM_VPN_PORTAL_URL", raising=False)
     monkeypatch.setattr(um_vpn, "find_browser", lambda: "/usr/bin/true")
+    # A real keepalive would outlive the test by a minute.
+    fake.keepalives = []
+    monkeypatch.setattr(
+        um_vpn, "start_keepalive", lambda: fake.keepalives.append("started")
+    )
     return fake
 
 
@@ -347,8 +357,10 @@ def test_on_creates_the_connection_and_pipes_in_the_cookie(nm, login, capsys):
     assert add["argv"][add["argv"].index("con-name") + 1] == (
         "University of Macau"
     )
+    # disable_udp: with ESP on, the keepalive's queries skip the TLS
+    # connection, which then dies after five idle minutes.
     assert add["argv"][add["argv"].index("vpn.data") + 1] == (
-        "protocol=nc, gateway=sslvpn.um.edu.mo, "
+        "protocol=nc, gateway=sslvpn.um.edu.mo, disable_udp=yes, "
         "cookie-flags=2, gateway-flags=2, gwcert-flags=2"
     )
     assert "connection.permissions" in add["argv"]
@@ -362,14 +374,21 @@ def test_on_creates_the_connection_and_pipes_in_the_cookie(nm, login, capsys):
     )
     # The cookie is a live session: ps shows every argv to every user.
     assert not any("fake-dsid" in " ".join(c["argv"]) for c in nm.calls)
+    assert nm.keepalives == ["started"]
     assert capsys.readouterr().out == "um-vpn: connected, 192.0.2.10/32\n"
 
 
-def test_on_reuses_an_existing_connection(nm, login):
+def test_on_reuses_an_existing_connection_with_esp_off(nm, login):
     nm.set(exists=True)
     assert um_vpn.main(["on"]) == 0
     assert nm.called("add") == []
+    # Connections made by earlier versions have ESP on.
+    [modify] = nm.called("modify")
+    assert modify["argv"][-2:] == ["+vpn.data", "disable_udp=yes"]
+    [up] = nm.called("up")
+    assert nm.calls.index(modify) < nm.calls.index(up)
     assert nm.state["active"]
+    assert nm.keepalives == ["started"]
 
 
 def test_on_while_connected_only_reports(nm, login, capsys):
@@ -394,6 +413,7 @@ def test_bare_um_vpn_shows_help_and_touches_nothing(nm, login, capsys):
     assert out.startswith("usage: um-vpn")
     for command in ("on", "off", "status", "forget"):
         assert command in out
+    assert "keepalive" not in out  # only 'on' has a use for it
     # Running it to see what it does must not cost a Duo push or the tunnel.
     assert nm.calls == []
     assert login == []
@@ -414,3 +434,58 @@ def test_forget_removes_the_connection_and_the_profile(nm, tmp_path):
     assert not nm.state["exists"]
     assert not profile.exists()
     assert um_vpn.main(["forget"]) == 0  # and again, with nothing left
+
+
+# --- keepalive --------------------------------------------------------------
+
+# The nm fixture stubs this out; one test runs the real thing.
+START_KEEPALIVE = um_vpn.start_keepalive
+
+
+def finishes(target, timeout=30):
+    """Runs target in a thread; False if it is still going after timeout."""
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    return not thread.is_alive()
+
+
+def test_the_keepalive_queries_the_tunnel_dns_until_the_tunnel_is_down(
+    nm, monkeypatch
+):
+    nm.set(exists=True, active=True)
+    monkeypatch.setattr(um_vpn, "KEEPALIVE_INTERVAL", 0)
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind(("127.0.0.1", 0))
+    monkeypatch.setattr(um_vpn, "DNS_PORT", server.getsockname()[1])
+    queries = []
+
+    def answer_twice_then_drop_the_tunnel():
+        while len(queries) < 2:
+            query, client = server.recvfrom(512)
+            queries.append(query)
+            if len(queries) == 2:
+                nm.set(active=False)
+            server.sendto(query, client)
+
+    threading.Thread(target=answer_twice_then_drop_the_tunnel).start()
+    assert finishes(um_vpn.cmd_keepalive)
+    server.close()
+    assert len(queries) == 2
+    # An ordinary question, about the portal's own name.
+    assert b"\x06sslvpn\x02um\x03edu\x02mo\x00" in queries[0]
+
+
+def test_a_second_keepalive_leaves_at_once(nm):
+    nm.set(exists=True, active=True)
+    with um_vpn.keepalive_lock():
+        assert finishes(um_vpn.cmd_keepalive, timeout=10)
+    assert nm.calls == []
+
+
+def test_the_keepalive_runs_this_file_in_a_process_of_its_own(nm):
+    child = START_KEEPALIVE()
+    assert child.args == [sys.executable, um_vpn.__file__, "keepalive"]
+    # The fake tunnel is down, so it asks NetworkManager once and exits.
+    assert child.wait(timeout=30) == 0
+    assert nm.called("--active")
