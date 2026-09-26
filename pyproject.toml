@@ -11,9 +11,6 @@ dependencies = []
 [project.scripts]
 um-vpn = "um_vpn:main"
 
-[dependency-groups]
-dev = ["pytest>=8"]
-
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
@@ -21,8 +18,34 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 py-modules = ["um_vpn"]
 
+# pixi manages development. `pixi global install --git` also builds um-vpn
+# from this file, into an environment that brings its own secret-tool.
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[tool.pixi.package.build]
+backend = { name = "pixi-build-python", version = "0.*" }
+
+[tool.pixi.package.host-dependencies]
+setuptools = ">=77"
+
+[tool.pixi.package.run-dependencies]
+libsecret = "*"  # secret-tool, for the stored UMPASS sign-in
+
+[tool.pixi.dependencies]
+pre-commit = "*"
+pytest = ">=8"
+
+[tool.pixi.tasks]
+test = "pytest"
+lint = "pre-commit run --all-files"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The tests import um_vpn from the checkout, so nothing needs installing.
+pythonpath = ["."]
 
 # PEP 8: 4-space indent, 79 columns.
 [tool.ruff]

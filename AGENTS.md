@@ -8,10 +8,10 @@ before, and docs/debugging.md shows how to find out why a tunnel failed.
 
 ## Verify
 
-`uv run pytest && pre-commit run --all-files` must pass before a commit. The
-tests drive headless Chrome against a stand-in portal and ADFS on 127.0.0.1,
-with a fake nmcli and a fake secret-tool: no Duo, no network change, no sudo, no
-real keyring.
+`pixi run test && pixi run lint` must pass before a commit. The tests drive
+headless Chrome against a stand-in portal and ADFS on 127.0.0.1, with a fake
+nmcli and a fake secret-tool: no Duo, no network change, no sudo, no real
+keyring.
 
 ## Hard limits
 

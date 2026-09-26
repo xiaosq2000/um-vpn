@@ -1,7 +1,7 @@
-# Install once with: pre-commit install
-# Run over everything with: pre-commit run --all-files
+# Install once with: pixi run pre-commit install
+# Run over everything with: pixi run lint
 #
-# Lint and format only. The tests are `uv run pytest`, kept out of the hook
+# Lint and format only. The tests are `pixi run test`, kept out of the hook
 # because they start Chrome and take about half a minute.
 
 repos:

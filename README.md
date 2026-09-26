@@ -20,7 +20,11 @@ the tunnel with OpenConnect. No sudo.
 
 ## Install
 
-On Ubuntu, or any Linux desktop that uses NetworkManager:
+um-vpn runs on Ubuntu, or any Linux desktop that uses NetworkManager. It needs
+Google Chrome (the `.deb` from google.com) or a Chromium that is not a snap.
+
+Copy the one file onto your `PATH`, and take the NetworkManager plugin and
+`secret-tool` from apt:
 
 ```bash
 sudo apt install network-manager-openconnect libsecret-tools
@@ -28,11 +32,18 @@ curl -fLo ~/.local/bin/um-vpn https://raw.githubusercontent.com/xiaosq2000/um-vp
 chmod +x ~/.local/bin/um-vpn
 ```
 
-`libsecret-tools` provides `secret-tool`, which um-vpn uses to keep your UMPASS
-sign-in in the login keyring. You also need Google Chrome (the `.deb` from
-google.com) or a Chromium that is not a snap, and Python 3.10 or later, which
-Ubuntu already has. With [uv](https://docs.astral.sh/uv/),
-`uv tool install git+https://github.com/xiaosq2000/um-vpn` works too.
+It runs on the system's Python 3.10 or later, which Ubuntu already has, and
+`secret-tool` keeps your UMPASS sign-in in the login keyring.
+
+Or install it with [pixi](https://pixi.sh), which brings its own Python and
+`secret-tool`, so that only the NetworkManager plugin comes from apt:
+
+```bash
+sudo apt install network-manager-openconnect
+pixi global install --git https://github.com/xiaosq2000/um-vpn
+```
+
+`pixi global update um-vpn` updates it.
 
 ## Use
 
@@ -89,7 +100,8 @@ Nothing needs setting for UM. Two environment variables change the defaults:
 - **"The sign-in page already shows an error"**: ADFS showed an error, such as a
   locked account, before um-vpn typed anything. um-vpn leaves the form to you
   and keeps the stored password.
-- **"secret-tool not found"**: run `sudo apt install libsecret-tools`.
+- **"secret-tool not found"**: run `sudo apt install libsecret-tools`, or
+  install um-vpn with pixi, which brings its own.
 - **To stop the autofill** but keep the login profile, delete only the stored
   sign-in with `secret-tool clear service um-vpn`.
 - **"NetworkManager could not connect"**: um-vpn prints OpenConnect's own
@@ -143,14 +155,15 @@ Nothing needs setting for UM. Two environment variables change the defaults:
 
 ```bash
 um-vpn forget
-rm ~/.local/bin/um-vpn      # or: uv tool uninstall um-vpn
+rm ~/.local/bin/um-vpn      # or: pixi global uninstall um-vpn
 ```
 
 ## Development
 
 ```bash
-uv run pytest               # headless Chrome, fake nmcli and keyring: no Duo, no network
-pre-commit install          # lint and format on every commit
+pixi run test               # headless Chrome, fake nmcli and keyring: no Duo, no network
+pixi run lint               # every pre-commit hook, on every file
+pixi run pre-commit install # lint and format on every commit
 ```
 
 The browser tests skip themselves when no Chrome or Chromium is installed.

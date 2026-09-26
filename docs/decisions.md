@@ -2,6 +2,28 @@
 
 Why um-vpn is built the way it is, and what was tried instead. Newest first.
 
+## 2026-09: pixi manages the project
+
+pixi replaces uv for development, and `pixi global install --git` installs
+um-vpn with its own Python and `secret-tool`. Checked on 2026-09-26 with pixi
+0.80:
+
+- pixi installs conda packages, so an install can bring `secret-tool` from
+  conda-forge's `libsecret`. The `um-vpn` command that pixi exposes puts its
+  environment's `bin` on `PATH`, where um-vpn finds `secret-tool`. uv installs
+  Python packages only, so its installs needed `libsecret-tools` from apt.
+- `network-manager-openconnect` still comes from apt, because the system's
+  NetworkManager loads it as a plugin.
+- `pixi global install --git` builds um-vpn from `pyproject.toml` with
+  `pixi-build-python`, which needs the `pixi-build` preview. An install from git
+  gets its own copy of `um_vpn.py`. An install with `--path` is editable and
+  runs the checkout's file.
+- The curl install stays. It is one file that needs only the standard library,
+  plus `libsecret-tools` from apt for the stored sign-in.
+- For development, pixi provides pytest and pre-commit from conda-forge. The
+  tests import `um_vpn` from the checkout (`pythonpath = ["."]`), so nothing is
+  installed into the environment.
+
 ## 2026-09: the UMPASS sign-in from the keyring
 
 `um-vpn remember` stores the UMPASS ID and password in the login keyring, and
@@ -33,10 +55,11 @@ Why um-vpn is built the way it is, and what was tried instead. Newest first.
   UM's own handler runs. That handler adds `@um.edu.mo` to a bare ID.
 - The ID and password travel as arguments of a DevTools call over the private
   pipe, never in argv, the environment or the script's source.
-- `secret-tool`, from `libsecret-tools`, stores and reads the items. Ubuntu does
-  not install it by default. `gdbus` would need the password on its command line
-  to store it, and a D-Bus client written with the standard library would take
-  several hundred lines.
+- `secret-tool` stores and reads the items. It comes from `libsecret-tools`,
+  which Ubuntu does not install by default, or from conda-forge's `libsecret` in
+  a pixi install. `gdbus` would need the password on its command line to store
+  it, and a D-Bus client written with the standard library would take several
+  hundred lines.
 - The items (`service=um-vpn`, `field=username` or `field=password`) are the
   ones the bash version used, so items it stored still work.
 - Chrome's password manager fills the form but does not submit it. A `gpg` file
