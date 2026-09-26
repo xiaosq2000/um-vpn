@@ -4,7 +4,7 @@ um-vpn connects to the University of Macau SSL VPN. It reads the portal's `DSID`
 session cookie from a Chrome login over DevTools and hands it to
 NetworkManager's openconnect plugin. All of it is in `um_vpn.py`. README.md is
 for users; docs/decisions.md records why it is built this way and what failed
-before.
+before, and docs/debugging.md shows how to find out why a tunnel failed.
 
 ## Verify
 
@@ -24,10 +24,15 @@ nmcli: no Duo, no network change, no sudo.
   ADFS sign-in. Never print a `DSID` value.
 - Never put a secret in argv or the environment. `ps` shows every argv to every
   user, and children inherit the environment.
+- Leave proxy and VPN clients on the machine alone. um-vpn works alongside them,
+  and your own connection may run through one.
 
-## When you find a trap
+## What you learn
 
-Remove it, or pin it with a test. Don't add a paragraph here.
+Put it in the repo, where agents on every machine will find it, and not in an
+agent's private memory. Remove a trap or pin it with a test, record a design
+decision or a failed attempt in docs/decisions.md, and add a way to diagnose a
+failure to docs/debugging.md. Don't add a paragraph here.
 
 ## Conventions
 
