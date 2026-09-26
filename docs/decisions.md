@@ -67,11 +67,11 @@ um-vpn with its own Python and `secret-tool`. Checked on 2026-09-26 with pixi
 
 ## 2026-09: ESP off, and a keepalive
 
-The tunnel used to stop working about five minutes after every connect, then
-recover by itself about sixteen minutes later. um-vpn now turns ESP off and
-keeps a small process running that sends one DNS query through the tunnel every
-minute. Measured on 2026-09-26 with openconnect 9.12 and
-network-manager-openconnect 1.2.10:
+With ESP on and no keepalive, the tunnel stops passing traffic about five
+minutes after a connect and recovers by itself about sixteen minutes later. So
+um-vpn turns ESP off and keeps a small process running that sends one DNS query
+through the tunnel every minute. Measured on 2026-09-26 with openconnect 9.12
+and network-manager-openconnect 1.2.10:
 
 - While ESP carries the traffic, the TLS connection to the gateway carries
   nothing. About 300 seconds after the connect, the gateway stopped answering
@@ -97,8 +97,8 @@ network-manager-openconnect 1.2.10:
   terminal. It asks the first DNS server that the gateway pushed for the
   portal's own address, and exits once NetworkManager no longer lists the
   tunnel. A lock file keeps it to one process.
-- Everything now crosses one TCP connection, which handles packet loss worse
-  than ESP does.
+- Everything crosses one TCP connection, which handles packet loss worse than
+  ESP does.
 - Lowering `tcp_retries2` would shorten the outage, but it needs root and
   changes every TCP connection on the machine.
 - Where the five-minute limit sits, in the home network or in front of the
@@ -106,10 +106,9 @@ network-manager-openconnect 1.2.10:
 
 ## 2026-09: one Python file on NetworkManager
 
-The first version was a bash script that ran `sudo openconnect` itself, plus a
-Python helper that read the cookie over a DevTools port. Much of its code, and
-most of its instructions for AI agents, dealt with problems that design created.
-The rewrite removes those problems instead of documenting them.
+um-vpn replaced a bash script that ran `sudo openconnect` itself, plus a Python
+helper that read the cookie over a DevTools port. Much of that code dealt with
+problems the design created, and the choices below remove them.
 
 - **NetworkManager runs the tunnel, not `sudo openconnect`.** Its polkit rules
   let the desktop user connect without a password. It owns the openconnect
@@ -133,14 +132,15 @@ The rewrite removes those problems instead of documenting them.
   process while the login window was up, and it needed a hand-written WebSocket
   client.
 - **The login goes direct.** Chrome starts with `--no-proxy-server`, because the
-  tunnel connects to the gateway directly and ignores desktop proxies. Before
-  this, users behind a proxy had to switch it off around each connect.
+  tunnel connects to the gateway directly and ignores desktop proxies. Without
+  it, users behind a proxy have to switch the proxy off around each connect.
 - **One Python file, standard library only.** Python 3 is on every Ubuntu
   desktop, so the file installs by being copied. A Go binary would be as easy to
   hand out, but it would need a full port and a build step.
-- **Tests instead of warnings.** Headless Chrome against a stand-in portal
-  checks the login. A fake nmcli checks what reaches NetworkManager, and that
-  the cookie never lands on a command line.
+- **Tests instead of warnings.** Headless Chrome against a stand-in portal and
+  ADFS checks the login and the sign-in. A fake nmcli checks what reaches
+  NetworkManager, and that the cookie never lands on a command line. A fake
+  secret-tool keeps every test away from the real keyring.
 
 ## 2026-07, re-checked 2026-08: how to authenticate at all
 
@@ -165,8 +165,8 @@ ADFS MFA adapter.
   HttpOnly session cookie that may never be written to disk, and what is written
   is encrypted with a key from the keyring.
 - **NetworkManager's openconnect plugin with its own login dialog:** its
-  embedded WebKit window was an unknown against Duo's Universal Prompt. In
-  2026-09 NetworkManager became the tunnel instead, with um-vpn doing the login.
+  embedded WebKit window was an unknown against Duo's Universal Prompt.
+  NetworkManager runs the tunnel instead, with um-vpn doing the login.
 - **`--protocol=nc` with a `DSID` taken from a browser login:** works, even with
   stock OpenConnect 9.12, because the legacy protocol skips the newer client
   policy checks. Everything in um-vpn follows from this.

@@ -6,10 +6,11 @@
       "Bash(pixi run test *)",
       "Bash(pixi run lint)",
       "Bash(pre-commit run *)",
-      "Bash(um-vpn status)"
+      "Bash(um-vpn)",
+      "Bash(um-vpn status)",
+      "Bash(./um_vpn.py)"
     ],
     "deny": [
-      "Bash(um-vpn)",
       "Bash(um-vpn on)",
       "Bash(um-vpn on *)",
       "Bash(um-vpn off)",
@@ -20,7 +21,6 @@
       "Bash(um-vpn remember *)",
       "Bash(secret-tool)",
       "Bash(secret-tool *)",
-      "Bash(./um_vpn.py)",
       "Bash(./um_vpn.py *)",
       "Bash(nmcli connection up *)",
       "Bash(nmcli connection down *)",
