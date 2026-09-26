@@ -1,8 +1,35 @@
 # Debugging
 
-How to find out why the tunnel failed to connect, dropped, or stopped passing
-traffic. Every command here only reads state, so it costs no Duo push and leaves
-the network alone.
+How to find out why the sign-in was not filled in, or why the tunnel failed to
+connect, dropped, or stopped passing traffic. Every command here only reads
+state, so it costs no Duo push and leaves the network alone.
+
+## Did um-vpn fill in the sign-in?
+
+`um-vpn on` reports what it did with the stored sign-in:
+
+| Note                                                 | Meaning                                                                        |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `Filled in the stored UMPASS sign-in.`               | um-vpn submitted the ADFS form.                                                |
+| `UMPASS did not accept the stored ID and password …` | ADFS showed the sign-in form again after the submit. um-vpn deleted the pair.  |
+| `The sign-in page already shows an error …`          | ADFS showed an error before um-vpn typed anything, so it typed nothing.        |
+| `Could not fill in the sign-in …`                    | The page changed between the check and the fill.                               |
+| None of these                                        | No sign-in is stored, or no page matched ADFS's form on `https://*.um.edu.mo`. |
+
+To see whether a sign-in is stored, print the stored ID alone. No output means
+nothing is stored. Don't use `secret-tool search`, which prints the password as
+well.
+
+```bash
+secret-tool lookup service um-vpn field username
+```
+
+um-vpn finds the form by its element IDs. This shows whether UM's page still has
+them, and whether it still hides "Keep me signed in" (`kmsiArea`):
+
+```bash
+curl -sL https://sslvpn.um.edu.mo/ | grep -oE 'id="(loginForm|userNameInput|passwordInput|submitButton|errorText|kmsiArea)"( style="[^"]*")?'
+```
 
 ## Did it connect?
 

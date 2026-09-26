@@ -3,14 +3,16 @@
 Connect to the University of Macau SSL VPN from a Linux desktop:
 
 ```bash
+um-vpn remember # once: store your UMPASS ID and password
 um-vpn on       # sign in through Chrome and connect
 um-vpn off      # disconnect
 ```
 
 The UM portal signs you in through ADFS and Duo, which no VPN client on Linux
-can do by itself. um-vpn opens the portal in Chrome, waits while you sign in,
-takes the session cookie from the browser, and hands it to NetworkManager, which
-runs the tunnel with OpenConnect. No sudo.
+can do by itself. um-vpn opens the portal in Chrome, fills in your UMPASS ID and
+password from the login keyring, and waits while you approve Duo. It then takes
+the session cookie from the browser and hands it to NetworkManager, which runs
+the tunnel with OpenConnect. No sudo.
 
 > **Unofficial.** ICTO neither provides nor supports this. It relies on the
 > gateway's legacy Network Connect protocol, which a firmware upgrade could
@@ -21,25 +23,27 @@ runs the tunnel with OpenConnect. No sudo.
 On Ubuntu, or any Linux desktop that uses NetworkManager:
 
 ```bash
-sudo apt install network-manager-openconnect
+sudo apt install network-manager-openconnect libsecret-tools
 curl -fLo ~/.local/bin/um-vpn https://raw.githubusercontent.com/xiaosq2000/um-vpn/main/um_vpn.py
 chmod +x ~/.local/bin/um-vpn
 ```
 
-You also need Google Chrome (the `.deb` from google.com) or a Chromium that is
-not a snap, and Python 3.10 or later, which Ubuntu already has. With
-[uv](https://docs.astral.sh/uv/),
+`libsecret-tools` provides `secret-tool`, which um-vpn uses to keep your UMPASS
+sign-in in the login keyring. You also need Google Chrome (the `.deb` from
+google.com) or a Chromium that is not a snap, and Python 3.10 or later, which
+Ubuntu already has. With [uv](https://docs.astral.sh/uv/),
 `uv tool install git+https://github.com/xiaosq2000/um-vpn` works too.
 
 ## Use
 
-| Command         | Effect                                                     |
-| --------------- | ---------------------------------------------------------- |
-| `um-vpn`        | Show help                                                  |
-| `um-vpn on`     | Sign in through Chrome and connect                         |
-| `um-vpn off`    | Disconnect, which also ends your portal session            |
-| `um-vpn status` | Show whether the tunnel is up, and its address             |
-| `um-vpn forget` | Delete the NetworkManager connection and the login profile |
+| Command           | Effect                                                                         |
+| ----------------- | ------------------------------------------------------------------------------ |
+| `um-vpn`          | Show help                                                                      |
+| `um-vpn on`       | Sign in through Chrome and connect                                             |
+| `um-vpn off`      | Disconnect, which also ends your portal session                                |
+| `um-vpn status`   | Show whether the tunnel is up, and its address                                 |
+| `um-vpn remember` | Store your UMPASS ID and password in the login keyring                         |
+| `um-vpn forget`   | Delete the NetworkManager connection, the login profile and the stored sign-in |
 
 GNOME's quick settings show the tunnel as **University of Macau** under VPN, and
 can disconnect it.
@@ -49,14 +53,22 @@ running. It sends one DNS query through the tunnel each minute, because the
 tunnel stops working after about five minutes without traffic, and it exits by
 itself once the tunnel is down.
 
-The first time, a Chrome window opens on the portal. Sign in with UMPASS, then:
+Run `um-vpn remember` once. It asks for your UMPASS ID and password in the
+terminal and stores them in the login keyring, which your desktop session
+unlocks. From then on, `um-vpn on` opens a Chrome window on the portal, fills in
+the UMPASS sign-in and submits it. You approve Duo when it asks, and the window
+closes by itself once you are in. If Duo offers to remember the device, accept,
+and later connects skip Duo until that expires.
 
-- tick **Keep me signed in** on the ADFS page, and
-- tick **Remember this device** at the Duo prompt.
+Chrome offers to save the password after um-vpn fills it in. um-vpn does not
+need Chrome's copy, so choose **Never**, and Chrome stops asking.
 
-Until those expire, a connect is a window that opens and closes by itself, with
-nothing to type and no Duo push. If you also let Chrome save your UMPASS
-password, an expired sign-in costs one click and a Duo tap.
+Without a stored sign-in, you type your UMPASS ID and password into the window
+on every connect, because UM's sign-in page does not offer "Keep me signed in".
+
+After you change your UMPASS password, run `um-vpn remember` again. If UMPASS
+refuses the stored password, `um-vpn on` deletes it, so that it is never tried
+twice, and leaves the window for you to finish by hand.
 
 ## Configuration
 
@@ -71,6 +83,15 @@ Nothing needs setting for UM. Two environment variables change the defaults:
 
 - **"Chrome is already running on um-vpn's profile"**: a login window is still
   open. Close it and run `um-vpn on` again.
+- **"UMPASS did not accept the stored ID and password"**: your UMPASS password
+  has changed, or `um-vpn remember` stored a typo. um-vpn has deleted the stored
+  pair. Finish signing in by hand in the window, then run `um-vpn remember`.
+- **"The sign-in page already shows an error"**: ADFS showed an error, such as a
+  locked account, before um-vpn typed anything. um-vpn leaves the form to you
+  and keeps the stored password.
+- **"secret-tool not found"**: run `sudo apt install libsecret-tools`.
+- **To stop the autofill** but keep the login profile, delete only the stored
+  sign-in with `secret-tool clear service um-vpn`.
 - **"NetworkManager could not connect"**: um-vpn prints OpenConnect's own
   explanation below the error. "Cookie was rejected by server" right after a
   login usually means the session was logged out in another window; run
@@ -94,6 +115,8 @@ Nothing needs setting for UM. Two environment variables change the defaults:
   the error only says the login window closed.
 - NetworkManager disconnects VPNs on suspend. Run `um-vpn on` again after
   resume.
+- The autofill finds UM's ADFS form by its element IDs. If UM changes the page,
+  um-vpn stops filling it in, and you type the sign-in yourself.
 
 ## Security
 
@@ -102,8 +125,17 @@ Nothing needs setting for UM. Two environment variables change the defaults:
   line, where `ps` would show it to every user on the machine.
 - Chrome's DevTools connection is a private pipe too, not a port that other
   programs could connect to.
-- The login profile in `~/.local/share/um-vpn/chrome` holds the ADFS and Duo
-  sign-in that make logins silent. `um-vpn forget` deletes it.
+- Your UMPASS ID and password live in the login keyring. um-vpn reads them with
+  `secret-tool` and sends them to Chrome over the DevTools pipe, never on a
+  command line or in the environment.
+- um-vpn types them only into UM's ADFS sign-in form, on an `https://` page
+  under the portal's parent domain, `um.edu.mo`. The page is checked from inside
+  a separate script context that the page's own scripts cannot change.
+- UMPASS locks your account, email included, after a few wrong passwords. So
+  um-vpn submits the form at most once per connect, never fills a form that
+  already shows an error, and deletes a stored password that UMPASS refuses.
+- The login profile in `~/.local/share/um-vpn/chrome` holds Duo's remembered
+  device. `um-vpn forget` deletes it, along with the stored sign-in.
 - Disconnecting logs the session out on the gateway, so a copied cookie stops
   working then.
 
@@ -117,7 +149,7 @@ rm ~/.local/bin/um-vpn      # or: uv tool uninstall um-vpn
 ## Development
 
 ```bash
-uv run pytest               # headless Chrome and a fake nmcli: no Duo, no network
+uv run pytest               # headless Chrome, fake nmcli and keyring: no Duo, no network
 pre-commit install          # lint and format on every commit
 ```
 

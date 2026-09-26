@@ -9,19 +9,21 @@ before, and docs/debugging.md shows how to find out why a tunnel failed.
 ## Verify
 
 `uv run pytest && pre-commit run --all-files` must pass before a commit. The
-tests drive headless Chrome against a stand-in portal on 127.0.0.1 and a fake
-nmcli: no Duo, no network change, no sudo.
+tests drive headless Chrome against a stand-in portal and ADFS on 127.0.0.1,
+with a fake nmcli and a fake secret-tool: no Duo, no network change, no sudo, no
+real keyring.
 
 ## Hard limits
 
 `.claude/settings.json` enforces what it can of these.
 
-- Don't run `um-vpn` bare, `um-vpn on|off|forget`, or
-  `nmcli connection up|down|delete`. Each costs the user a real Duo push or
-  changes their real network. `um-vpn status` is safe; ask the user to run the
-  rest.
-- Don't read `~/.local/share/um-vpn/`: the Chrome profile there holds a live
-  ADFS sign-in. Never print a `DSID` value.
+- Don't run `um-vpn` bare, `um-vpn on|off|remember|forget`, or
+  `nmcli connection up|down|delete`. Each costs the user a real Duo push, or
+  changes their real network or their stored sign-in. `um-vpn status` is safe;
+  ask the user to run the rest.
+- Don't read `~/.local/share/um-vpn/`, whose Chrome profile holds Duo's
+  remembered device, and don't run `secret-tool`, which reaches the UMPASS
+  password in the keyring. Never print a `DSID` value.
 - Never put a secret in argv or the environment. `ps` shows every argv to every
   user, and children inherit the environment.
 - Leave proxy and VPN clients on the machine alone. um-vpn works alongside them,
