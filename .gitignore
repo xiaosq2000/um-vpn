@@ -1,7 +1,8 @@
-# Python and uv.
+# Python and its environments.
 __pycache__/
 *.py[co]
 *.egg-info/
+.pixi/
 .venv/
 .pytest_cache/
 build/
