@@ -56,30 +56,27 @@ pixi global install --git https://github.com/xiaosq2000/um-vpn
 | `um-vpn remember` | Store your UMPASS ID and password in the login keyring                         |
 | `um-vpn forget`   | Delete the NetworkManager connection, the login profile and the stored sign-in |
 
+Run `um-vpn remember` once. It asks for your UMPASS ID and password and stores
+them in the login keyring, which your desktop session unlocks. Each `um-vpn on`
+then opens Chrome on the portal and submits the sign-in for you. You approve Duo
+if it asks, and the window closes once you are in. Without a stored sign-in, you
+type it on every connect, because UM's sign-in page does not offer "Keep me
+signed in".
+
+- If Duo offers to remember the device, accept, and later connects skip Duo
+  until that expires.
+- Chrome offers to save the password. um-vpn does not need Chrome's copy, so
+  choose **Never**.
+- After you change your UMPASS password, run `um-vpn remember` again. A stored
+  password that UMPASS refuses is deleted, so that it is never tried twice.
+- To stop the autofill but keep the login profile, run
+  `secret-tool clear service um-vpn`.
+
 GNOME's quick settings show the tunnel as **University of Macau** under VPN, and
-can disconnect it.
-
-While the tunnel is up, `um-vpn on` leaves a small `um-vpn keepalive` process
-running. It sends one DNS query through the tunnel each minute, because the
-tunnel stops working after about five minutes without traffic, and it exits by
-itself once the tunnel is down.
-
-Run `um-vpn remember` once. It asks for your UMPASS ID and password in the
-terminal and stores them in the login keyring, which your desktop session
-unlocks. From then on, `um-vpn on` opens a Chrome window on the portal, fills in
-the UMPASS sign-in and submits it. You approve Duo when it asks, and the window
-closes by itself once you are in. If Duo offers to remember the device, accept,
-and later connects skip Duo until that expires.
-
-Chrome offers to save the password after um-vpn fills it in. um-vpn does not
-need Chrome's copy, so choose **Never**, and Chrome stops asking.
-
-Without a stored sign-in, you type your UMPASS ID and password into the window
-on every connect, because UM's sign-in page does not offer "Keep me signed in".
-
-After you change your UMPASS password, run `um-vpn remember` again. If UMPASS
-refuses the stored password, `um-vpn on` deletes it, so that it is never tried
-twice, and leaves the window for you to finish by hand.
+can disconnect it. While the tunnel is up, a small `um-vpn keepalive` process
+sends one DNS query through it each minute, because the tunnel stops working
+after about five minutes without traffic. The process exits once the tunnel is
+down.
 
 ## Configuration
 
@@ -95,18 +92,16 @@ Nothing needs setting for UM. Two environment variables change the defaults:
 - **"Chrome is already running on um-vpn's profile"**: a login window is still
   open. Close it and run `um-vpn on` again.
 - **"UMPASS did not accept the stored ID and password"**: your UMPASS password
-  has changed, or `um-vpn remember` stored a typo. um-vpn has deleted the stored
-  pair. Finish signing in by hand in the window, then run `um-vpn remember`.
+  changed, or `um-vpn remember` stored a typo. um-vpn has deleted the pair.
+  Finish in the window, then run `um-vpn remember`.
 - **"The sign-in page already shows an error"**: ADFS showed an error, such as a
-  locked account, before um-vpn typed anything. um-vpn leaves the form to you
-  and keeps the stored password.
+  locked account, before um-vpn typed anything. Sign in by hand; the stored
+  password is kept.
 - **"secret-tool not found"**: run `sudo apt install libsecret-tools`, or
   install um-vpn with pixi, which brings its own.
-- **To stop the autofill** but keep the login profile, delete only the stored
-  sign-in with `secret-tool clear service um-vpn`.
 - **"NetworkManager could not connect"**: um-vpn prints OpenConnect's own
   explanation below the error. "Cookie was rejected by server" right after a
-  login usually means the session was logged out in another window; run
+  login usually means the session was logged out in another window. Run
   `um-vpn on` again.
 - **Connected, but nothing gets through**: `pgrep -af 'um.vpn.* keepalive'`
   should show one process. If it shows none, run `um-vpn off` and `um-vpn on`.
@@ -137,15 +132,12 @@ Nothing needs setting for UM. Two environment variables change the defaults:
   line, where `ps` would show it to every user on the machine.
 - Chrome's DevTools connection is a private pipe too, not a port that other
   programs could connect to.
-- Your UMPASS ID and password live in the login keyring. um-vpn reads them with
-  `secret-tool` and sends them to Chrome over the DevTools pipe, never on a
-  command line or in the environment.
-- um-vpn types them only into UM's ADFS sign-in form, on an `https://` page
-  under the portal's parent domain, `um.edu.mo`. The page is checked from inside
-  a separate script context that the page's own scripts cannot change.
+- Your UMPASS ID and password live in the login keyring. They reach Chrome over
+  the DevTools pipe, never on a command line or in the environment, and go only
+  into UM's ADFS form on an `https://` page under `um.edu.mo`.
 - UMPASS locks your account, email included, after a few wrong passwords. So
-  um-vpn submits the form at most once per connect, never fills a form that
-  already shows an error, and deletes a stored password that UMPASS refuses.
+  um-vpn submits the form at most once per connect, and never into a form that
+  already shows an error.
 - The login profile in `~/.local/share/um-vpn/chrome` holds Duo's remembered
   device. `um-vpn forget` deletes it, along with the stored sign-in.
 - Disconnecting logs the session out on the gateway, so a copied cookie stops
