@@ -75,6 +75,9 @@ Nothing needs setting for UM. Two environment variables change the defaults:
   explanation below the error. "Cookie was rejected by server" right after a
   login usually means the session was logged out in another window; run
   `um-vpn on` again.
+- **Connected, but nothing gets through**: `pgrep -af 'um.vpn.* keepalive'`
+  should show one process. If it shows none, run `um-vpn off` and `um-vpn on`.
+  [docs/debugging.md](docs/debugging.md) shows how to dig further.
 - **A "VPN authentication" dialog from GNOME**: that is NetworkManager's own
   login, which cannot sign in to UM. Cancel it and use `um-vpn on`.
 - **"…is a snap"**: snap confinement keeps Chromium out of the login profile in
